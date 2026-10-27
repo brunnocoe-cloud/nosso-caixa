@@ -787,7 +787,7 @@ const datasFatura = (c, fym) => {
 };
 let _fatCache = new Map();
 function faturaInfo(c, fym) {
-  const key = c.id + fym + S.carregadoEm;
+  const key = c.id + fym + S.carregadoEm + (S.prefs.faturas_base || '');
   if (_fatCache.has(key)) return _fatCache.get(key);
   const doCartao = S.lancamentos.filter(l => l.cartao_id === c.id);
   const itens = doCartao.filter(l => (l.tipo === 'despesa' || l.tipo === 'receita') && fatMes(l) === fym)
@@ -799,9 +799,11 @@ function faturaInfo(c, fym) {
   // saldo anterior = o que ficou sem pagar na fatura anterior
   const meses = [...new Set(doCartao.map(fatMes).filter(Boolean))].sort();
   let saldoAnterior = 0;
+  // faturas até a "base" (histórico importado) são consideradas quitadas, como no Meu Dinheiro
+  const base = S.prefs.faturas_base || '';
   if (meses.length && meses[0] < fym) {
     const prev = addMeses(fym, -1);
-    saldoAnterior = prev >= meses[0] ? faturaInfo(c, prev).aPagar : 0;
+    saldoAnterior = prev >= meses[0] && prev > base ? faturaInfo(c, prev).aPagar : 0;
   }
   const aPagar = r2(Math.max(0, saldoAnterior + total - pago));
   const { fechamento, vencimento } = datasFatura(c, fym);
@@ -819,11 +821,11 @@ function faturaInfo(c, fym) {
   _fatCache.set(key, res);
   return res;
 }
+// limite usado = valor a pagar da fatura atual (com o que ficou das anteriores) + parcelas futuras
 function usoCartao(c) {
-  const doCartao = S.lancamentos.filter(l => l.cartao_id === c.id);
-  const compras = soma(doCartao.filter(l => l.tipo === 'despesa')) - soma(doCartao.filter(l => l.tipo === 'receita'));
-  const pagos = soma(doCartao.filter(l => l.tipo === 'pagamento_fatura' && l.pago));
-  const usado = r2(Math.max(0, compras - pagos));
+  const cur = faturaYM(c, hoje());
+  const futuras = S.lancamentos.filter(l => l.cartao_id === c.id && l.serie === 'parcelada' && fatMes(l) > cur);
+  const usado = r2(Math.max(0, faturaInfo(c, cur).aPagar + soma(futuras.filter(l => l.tipo === 'despesa')) - soma(futuras.filter(l => l.tipo === 'receita'))));
   return { usado, disponivel: r2(num(c.limite) - usado) };
 }
 const STATUS_FAT = { aberta: 'Aberta', fechada: 'Fechada', vencida: 'Vencida', paga: 'Paga', vazia: 'Sem lançamentos' };
@@ -2334,6 +2336,7 @@ async function importarMD() {
     if (S.metas.some(x => norm(x.nome) === norm(m.nome))) continue;
     await op(sb.from('metas').insert({ nome: m.nome, valor_alvo: m.valor || 1, data_alvo: m.data || null, conta_id: mapConta[m.conta] || null }));
   }
+  if (!S.prefs.faturas_base || S.prefs.faturas_base < ymHoje()) { S.prefs.faturas_base = ymHoje(); await salvarPrefs(); }
   await carregar();
   _fatCache = new Map();
   M.fase = 'fim';
