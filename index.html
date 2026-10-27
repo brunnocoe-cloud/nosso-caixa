@@ -3522,6 +3522,9 @@ Object.assign(ACOES, {
   ofSalvarChave: async (d, el) => {
     const clientId = $('#ofCid').value.trim(), clientSecret = $('#ofSec').value.trim();
     if (!clientId || !clientSecret) return toast('Cole o Client ID e o Client Secret.', true);
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(clientId)) return toast(`O Client ID colado não está no formato esperado (${clientId.length} caracteres; o certo tem 36, tipo xxxxxxxx-xxxx-…).`, true);
+    if (/[•*●]/.test(clientSecret)) return toast('O Client Secret foi copiado ainda escondido (••••). Na Pluggy, clique no ícone da chave para mostrá-lo e copie de novo.', true);
     el.disabled = true; el.textContent = 'Conferindo na Pluggy…';
     try { await ofChamar({ acao: 'salvar_credenciais', clientId, clientSecret }); OF.cred = true; OF.erro = ''; toast('Chave conferida e guardada'); }
     catch (e) { OF.erro = e.message; toast(e.message, true); }

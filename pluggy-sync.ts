@@ -72,14 +72,17 @@ Deno.serve(async (req) => {
   if (!userId) return json({ erro: 'Faça login no Nosso Caixa.' }, 401);
 
   // ---------- credenciais da Pluggy (segredo do Supabase ou cofre privado do banco) ----------
+  let ultimoErroAuth = '';
   const autenticar = async (id: string, secret: string) => {
     const r = await fetch(PLUGGY + '/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: id, clientSecret: secret }) });
-    return r.ok ? (await r.json()).apiKey as string : null;
+    if (r.ok) return (await r.json()).apiKey as string;
+    ultimoErroAuth = `HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`;
+    return null;
   };
   if (body.acao === 'salvar_credenciais') {
     const id = String(body.clientId || '').trim(), secret = String(body.clientSecret || '').trim();
     if (!id || !secret) return json({ erro: 'Informe o Client ID e o Client Secret.' }, 400);
-    if (!(await autenticar(id, secret))) return json({ erro: 'A Pluggy não aceitou esse Client ID / Client Secret. Confira se copiou os dois por completo.' }, 400);
+    if (!(await autenticar(id, secret))) return json({ erro: 'A Pluggy não aceitou esse Client ID / Client Secret (' + ultimoErroAuth + ').' }, 400);
     const { error } = await admin.rpc('nc_pluggy_cred_salvar', { cid: id, csecret: secret });
     if (error) return json({ erro: 'Não foi possível guardar a chave: ' + error.message }, 500);
     return json({ ok: true });
