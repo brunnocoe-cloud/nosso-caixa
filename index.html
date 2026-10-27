@@ -534,6 +534,140 @@ end $$;
 drop trigger if exists limitar_um_usuario on auth.users;
 create trigger limitar_um_usuario before insert on auth.users
   for each row execute function public.limitar_um_usuario();
+-- =====================================================================
+--  NOSSO CAIXA v4 · OPEN FINANCE (Pluggy / Meu Pluggy)
+--  Pode rodar quantas vezes quiser (não apaga nada).
+-- =====================================================================
+create table if not exists public.pluggy_contas (
+  id            text primary key,                 -- id da conta na Pluggy
+  user_id       uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  item_id       text not null,
+  nome          text,
+  tipo          text,                             -- BANK | CREDIT
+  numero        text,
+  conta_id      uuid references public.contas(id)  on delete set null,
+  cartao_id     uuid references public.cartoes(id) on delete set null,
+  ativo         boolean not null default true,
+  atualizado_em timestamptz
+);
+create table if not exists public.pluggy_execucoes (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  inicio      timestamptz not null default now(),
+  fim         timestamptz,
+  origem      text,
+  novos       int default 0,
+  conciliados int default 0,
+  ignorados   int default 0,
+  erro        text
+);
+create index if not exists lanc_user_ext on public.lancamentos(user_id, ext_id);
+do $$ declare t text; begin
+  foreach t in array array['pluggy_contas','pluggy_execucoes'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "dono_%s" on public.%I', t, t);
+    execute format('create policy "dono_%s" on public.%I for all to authenticated
+       using (user_id = auth.uid()) with check (user_id = auth.uid())', t, t);
+  end loop;
+end $$;
+
+-- ---------- agendamento automático (a cada 6 horas) ----------
+create extension if not exists pg_net;
+create extension if not exists pg_cron;
+create schema if not exists privado;
+revoke all on schema privado from public, anon, authenticated;
+create table if not exists privado.config (chave text primary key, valor text not null);
+insert into privado.config values ('cron', encode(extensions.gen_random_bytes(24), 'hex')) on conflict (chave) do nothing;
+
+create or replace function public.nc_cron_ok(t text) returns boolean
+language sql security definer set search_path = public as $$
+  select exists (select 1 from privado.config where chave = 'cron' and valor = t)
+$$;
+revoke all on function public.nc_cron_ok(text) from public, anon, authenticated;
+grant execute on function public.nc_cron_ok(text) to service_role;
+
+create or replace function public.nc_disparar_pluggy() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform net.http_post(
+    url     := 'https://cuhrhtkwfuwgsvsdrkng.supabase.co/functions/v1/pluggy-sync',
+    headers := jsonb_build_object('Content-Type','application/json',
+                 'x-nc-cron', (select valor from privado.config where chave = 'cron')),
+    body    := '{"acao":"sincronizar"}'::jsonb,
+    timeout_milliseconds := 120000);
+end $$;
+revoke all on function public.nc_disparar_pluggy() from public, anon, authenticated;
+
+select cron.unschedule('nosso-caixa-pluggy') where exists (select 1 from cron.job where jobname = 'nosso-caixa-pluggy');
+select cron.schedule('nosso-caixa-pluggy', '15 9,15,21,3 * * *', 'select public.nc_disparar_pluggy()');
+</script>
+<script type="text/plain" id="sqlOF">
+-- =====================================================================
+--  NOSSO CAIXA v4 · OPEN FINANCE (Pluggy / Meu Pluggy)
+--  Pode rodar quantas vezes quiser (não apaga nada).
+-- =====================================================================
+create table if not exists public.pluggy_contas (
+  id            text primary key,                 -- id da conta na Pluggy
+  user_id       uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  item_id       text not null,
+  nome          text,
+  tipo          text,                             -- BANK | CREDIT
+  numero        text,
+  conta_id      uuid references public.contas(id)  on delete set null,
+  cartao_id     uuid references public.cartoes(id) on delete set null,
+  ativo         boolean not null default true,
+  atualizado_em timestamptz
+);
+create table if not exists public.pluggy_execucoes (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  inicio      timestamptz not null default now(),
+  fim         timestamptz,
+  origem      text,
+  novos       int default 0,
+  conciliados int default 0,
+  ignorados   int default 0,
+  erro        text
+);
+create index if not exists lanc_user_ext on public.lancamentos(user_id, ext_id);
+do $$ declare t text; begin
+  foreach t in array array['pluggy_contas','pluggy_execucoes'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "dono_%s" on public.%I', t, t);
+    execute format('create policy "dono_%s" on public.%I for all to authenticated
+       using (user_id = auth.uid()) with check (user_id = auth.uid())', t, t);
+  end loop;
+end $$;
+
+-- ---------- agendamento automático (a cada 6 horas) ----------
+create extension if not exists pg_net;
+create extension if not exists pg_cron;
+create schema if not exists privado;
+revoke all on schema privado from public, anon, authenticated;
+create table if not exists privado.config (chave text primary key, valor text not null);
+insert into privado.config values ('cron', encode(extensions.gen_random_bytes(24), 'hex')) on conflict (chave) do nothing;
+
+create or replace function public.nc_cron_ok(t text) returns boolean
+language sql security definer set search_path = public as $$
+  select exists (select 1 from privado.config where chave = 'cron' and valor = t)
+$$;
+revoke all on function public.nc_cron_ok(text) from public, anon, authenticated;
+grant execute on function public.nc_cron_ok(text) to service_role;
+
+create or replace function public.nc_disparar_pluggy() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform net.http_post(
+    url     := 'https://cuhrhtkwfuwgsvsdrkng.supabase.co/functions/v1/pluggy-sync',
+    headers := jsonb_build_object('Content-Type','application/json',
+                 'x-nc-cron', (select valor from privado.config where chave = 'cron')),
+    body    := '{"acao":"sincronizar"}'::jsonb,
+    timeout_milliseconds := 120000);
+end $$;
+revoke all on function public.nc_disparar_pluggy() from public, anon, authenticated;
+
+select cron.unschedule('nosso-caixa-pluggy') where exists (select 1 from cron.job where jobname = 'nosso-caixa-pluggy');
+select cron.schedule('nosso-caixa-pluggy', '15 9,15,21,3 * * *', 'select public.nc_disparar_pluggy()');
 </script>
 <script>
 /* =====================================================================
@@ -1001,7 +1135,7 @@ const MENU = [
   ['relatorios', 'Relatórios', 'relat'],
   { grupo: 'cad', nome: 'Cadastros', icone: 'cad', itens: [
     ['categorias', 'Categorias', 'categ'], ['contas', 'Contas', 'banco'], ['tags', 'Tags', 'tag', 'tags'], ['documentos', 'Documentos', 'clip'],
-    ['regras', 'Regras de preenchimento', 'magic'], ['importar', 'Importar lançamentos', 'upload'], ['fechamento', 'Fechamento posição', 'lock'],
+    ['regras', 'Regras de preenchimento', 'magic'], ['importar', 'Importar lançamentos', 'upload'], ['openfinance', 'Open Finance (banco)', 'sync'], ['fechamento', 'Fechamento posição', 'lock'],
   ] },
   ['config', 'Configurações de utilização', 'ajustes'],
 ];
@@ -1009,7 +1143,7 @@ const TITULOS = {
   visao: 'Visão geral', lancamentos: 'Lançamentos de caixa', fluxo: 'Fluxo de caixa', pagar: 'Contas a pagar e receber', pagas: 'Contas pagas e recebidas',
   extrato: 'Extrato de contas', cartoes: 'Cartões de crédito', orcamento: 'Metas de despesa', economia: 'Metas de economia', relatorios: 'Relatórios',
   categorias: 'Categorias', contas: 'Contas', tags: 'Tags', documentos: 'Documentos', regras: 'Regras de preenchimento', importar: 'Importar lançamentos',
-  fechamento: 'Fechamento de posição', config: 'Configurações de utilização',
+  fechamento: 'Fechamento de posição', openfinance: 'Open Finance · lançamentos automáticos', config: 'Configurações de utilização',
 };
 const itemVisivel = it => !it[3] || recurso(it[3]);
 function navHTML() {
@@ -3032,7 +3166,7 @@ function telaLogin(msg = '', info = false) {
    ===================================================================== */
 const VIEWS = { visao: vVisao, lancamentos: vLancamentos, fluxo: vFluxo, pagar: vPagar, pagas: vPagas, extrato: vExtrato, cartoes: vCartoes,
   orcamento: vOrcamento, economia: vEconomia, relatorios: vRelatorios, categorias: vCategorias, contas: vContas, tags: vTags, documentos: vDocumentos,
-  regras: vRegras, importar: vImportar, fechamento: vFechamento, config: vConfig };
+  regras: vRegras, importar: vImportar, fechamento: vFechamento, config: vConfig, openfinance: vOpenFinance };
 const L = id => byId('lancamentos', id);
 const ACOES = {
   menu: () => { const d = $('#drawer'), app = $('#app'); if (innerWidth >= 1100) { app.classList.toggle('fixo'); lsSet('nc_menu_fixo', app.classList.contains('fixo') ? '1' : '0'); if (app.classList.contains('fixo')) return; } d.classList.add('open'); $('#scrim').classList.remove('hidden'); },
@@ -3237,6 +3371,134 @@ async function iniciarApp() {
   const { data: { session } } = await sb.auth.getSession();
   if (session) iniciarApp(); else telaLogin();
 })();
+
+/* =====================================================================
+   OPEN FINANCE (Pluggy / Meu Pluggy) — lançamentos automáticos
+   A chave secreta da Pluggy fica só no Supabase (função pluggy-sync).
+   ===================================================================== */
+const OF = { contas: null, execs: null, carregando: false, faltaSQL: false, erro: '' };
+const fmtDH = s => { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+
+async function ofCarregar() {
+  if (OF.carregando) return; OF.carregando = true;
+  try {
+    const [a, b] = await Promise.all([
+      sb.from('pluggy_contas').select('*').order('item_id'),
+      sb.from('pluggy_execucoes').select('*').order('inicio', { ascending: false }).limit(15),
+    ]);
+    if (a.error || b.error) { const e = a.error || b.error; if (tabelaFaltando(e)) { OF.faltaSQL = true; OF.contas = []; OF.execs = []; } else throw e; }
+    else { OF.faltaSQL = false; OF.contas = a.data; OF.execs = b.data; }
+  } catch (e) { OF.erro = traduzErro(e); OF.contas = OF.contas || []; OF.execs = OF.execs || []; }
+  OF.carregando = false;
+  if (S.view === 'openfinance') render();
+}
+
+async function ofChamar(corpo) {
+  const { data, error } = await sb.functions.invoke('pluggy-sync', { body: corpo });
+  if (error) {
+    let msg = error.message || String(error);
+    try { const j = await error.context?.json?.(); if (j?.erro) msg = j.erro; } catch {}
+    if (/Failed to send|not found|404/i.test(msg)) msg = 'A função "pluggy-sync" ainda não foi publicada no Supabase.';
+    throw new Error(msg);
+  }
+  if (data?.erro) throw new Error(data.erro);
+  return data;
+}
+
+function vOpenFinance() {
+  if (OF.contas === null) { setTimeout(ofCarregar); return '<div class="empty">Carregando…</div>'; }
+  const P = S.prefs.pluggy || {};
+  const itens = (P.itens || []).join('\n');
+  const destinoSel = pc => {
+    const v = pc.conta_id ? 'conta:' + pc.conta_id : pc.cartao_id ? 'cartao:' + pc.cartao_id : '';
+    const op = [['', '— não importar —'],
+      ...S.contas.filter(c => !c.arquivada).map(c => ['conta:' + c.id, 'Conta · ' + c.nome]),
+      ...S.cartoes.filter(c => !c.arquivado).map(c => ['cartao:' + c.id, 'Cartão · ' + c.nome])];
+    return `<select data-of-destino="${esc(pc.id)}">${op.map(([k, n]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+  };
+  const ult = (OF.execs || [])[0];
+  return `<div style="max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px;min-width:0">
+  ${OF.faltaSQL ? `<div class="card" style="border-left:4px solid var(--warn,#f9a825)"><div class="card-b" style="padding-top:14px">
+     <b>Falta um passo no banco de dados.</b> Copie o SQL abaixo e rode no <a href="https://supabase.com/dashboard/project/cuhrhtkwfuwgsvsdrkng/sql/new" target="_blank" rel="noopener">SQL Editor do Supabase</a>.
+     <div style="margin-top:10px"><button class="btn pri sm" data-act="ofCopiarSQL">Copiar SQL</button></div></div></div>` : ''}
+  ${OF.erro ? `<div class="err-msg">${esc(OF.erro)}</div>` : ''}
+  <div class="card">${cardH('Lançamentos automáticos pelo Open Finance')}
+    <div class="card-b" style="padding-top:12px">
+      <p style="margin-top:0">O Nosso Caixa busca os lançamentos das contas e cartões conectados no <b>Meu Pluggy</b> (gratuito) <b>4 vezes por dia</b> (0h, 6h, 12h e 18h) e também quando você clica em <b>Sincronizar agora</b>.
+      Lançamentos que já existem (por exemplo, contas fixas e parcelas) são <b>conciliados</b> em vez de duplicados. A categoria vem das <b>regras de preenchimento</b> e do histórico.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn pri" data-act="ofSincronizar">${ic('sync')}Sincronizar agora</button>
+        <span class="muted" style="font-size:13px">${ult ? `Última: ${fmtDH(ult.fim || ult.inicio)} · ${ult.erro ? '<span style="color:var(--late)">erro</span>' : `${ult.novos} novo(s), ${ult.conciliados} conciliado(s)`}` : 'Ainda não sincronizado.'}</span>
+      </div>
+    </div></div>
+
+  <div class="card">${cardH('1. Conexões (Item ID do Meu Pluggy)')}
+    <div class="card-b" style="padding-top:12px">
+      <div class="f"><label for="ofItens">Item ID (um por linha)</label><textarea id="ofItens" rows="2" placeholder="ex.: 6f2c1a9e-....">${esc(itens)}</textarea></div>
+      <div class="f" style="max-width:260px"><label for="ofDesde">Importar lançamentos a partir de</label><input type="date" id="ofDesde" value="${esc(P.desde || hoje())}"></div>
+      <p class="muted" style="font-size:12px;margin-top:-4px">Use a data de hoje para trazer só o que for novo (o histórico já veio do Meu Dinheiro). Limite: até 120 dias para trás.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" data-act="ofSalvarItens">Salvar</button><button class="btn out" data-act="ofBuscarContas">${ic('banco')}Buscar contas</button></div>
+    </div></div>
+
+  <div class="card">${cardH('2. Para onde vai cada conta')}
+    <div class="card-b ${OF.contas.length ? 'flush' : ''}">${OF.contas.length ? `<div style="overflow-x:auto"><table class="t"><tr><th class="l">Conta no banco</th><th class="l">Tipo</th><th class="l">Lançar em</th><th>Atualizado</th></tr>
+      ${OF.contas.map(pc => `<tr><td class="l">${esc(pc.nome || '')}${pc.numero ? ` <span class="muted">· ${esc(pc.numero)}</span>` : ''}</td><td class="l">${pc.tipo === 'CREDIT' ? 'Cartão' : 'Conta'}</td><td class="l">${destinoSel(pc)}</td><td>${fmtDH(pc.atualizado_em)}</td></tr>`).join('')}</table></div>`
+      : '<p class="muted" style="padding-top:12px">Depois de informar o Item ID, clique em <b>Buscar contas</b>.</p>'}</div></div>
+
+  <div class="card">${cardH('Histórico de sincronizações')}
+    <div class="card-b ${OF.execs.length ? 'flush' : ''}">${OF.execs.length ? `<div style="overflow-x:auto"><table class="t"><tr><th class="l">Quando</th><th class="l">Origem</th><th>Novos</th><th>Conciliados</th><th class="l">Situação</th></tr>
+      ${OF.execs.map(x => `<tr><td class="l">${fmtDH(x.fim || x.inicio)}</td><td class="l">${x.origem === 'agendado' ? 'Automática' : 'Manual'}</td><td>${x.novos ?? 0}</td><td>${x.conciliados ?? 0}</td><td class="l">${x.erro ? `<span style="color:var(--late)">${esc(x.erro)}</span>` : 'OK'}</td></tr>`).join('')}</table></div>`
+      : '<p class="muted" style="padding-top:12px">Nenhuma sincronização ainda.</p>'}</div></div>
+
+  <div class="card">${cardH('Como conectar (feito uma única vez)')}
+    <div class="card-b" style="padding-top:8px;font-size:14px"><ol style="padding-left:20px;line-height:1.6">
+      <li>Em <a href="https://meu.pluggy.ai" target="_blank" rel="noopener">meu.pluggy.ai</a>, crie sua conta e conecte o banco e os cartões (autorização pelo app do banco).</li>
+      <li>Em <a href="https://dashboard.pluggy.ai" target="_blank" rel="noopener">dashboard.pluggy.ai</a>, crie uma aplicação e anote o <b>Client ID</b> e o <b>Client Secret</b>.</li>
+      <li>Na aplicação, use <b>Ir para Demo</b> e conecte o conector <b>MeuPluggy</b>; ao final, copie o <b>Item ID</b>.</li>
+      <li>No Supabase, em <b>Edge Functions → Secrets</b>, crie <code>PLUGGY_CLIENT_ID</code> e <code>PLUGGY_CLIENT_SECRET</code>.</li>
+      <li>Aqui: cole o Item ID, clique em <b>Buscar contas</b>, escolha o destino de cada uma e clique em <b>Sincronizar agora</b>.</li>
+    </ol></div></div>
+  </div>`;
+}
+
+Object.assign(ACOES, {
+  ofCopiarSQL: async () => { await navigator.clipboard.writeText($('#sqlOF').textContent.trim()); toast('SQL copiado. Cole no SQL Editor e clique em Run.'); },
+  ofSalvarItens: async () => {
+    const itens = $('#ofItens').value.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+    S.prefs.pluggy = { ...(S.prefs.pluggy || {}), itens, desde: $('#ofDesde').value || hoje() };
+    await salvarPrefs('Conexões salvas');
+    return itens;
+  },
+  ofBuscarContas: async (d, el) => {
+    const itens = await ACOES.ofSalvarItens();
+    if (!itens.length) return toast('Informe o Item ID.', true);
+    el.disabled = true; toast('Buscando contas na Pluggy…');
+    try { const r = await ofChamar({ acao: 'contas', itens }); toast(`${r.contas.length} conta(s) encontrada(s). Escolha o destino de cada uma.`); OF.erro = ''; }
+    catch (e) { OF.erro = e.message; }
+    el.disabled = false; OF.contas = null; render();
+  },
+  ofSincronizar: async (d, el) => {
+    el.disabled = true; el.innerHTML = ic('sync') + 'Sincronizando…';
+    try {
+      const r = await ofChamar({ acao: 'sincronizar' });
+      OF.erro = '';
+      toast(r.novos || r.conciliados ? `${r.novos} lançamento(s) novo(s), ${r.conciliados} conciliado(s)` : 'Nada novo no banco.');
+      await carregar(['lancamentos']);
+    } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    OF.contas = null; render();
+  },
+});
+
+document.addEventListener('change', async e => {
+  const id = e.target.dataset?.ofDestino;
+  if (id === undefined) return;
+  const v = e.target.value;
+  const upd = { conta_id: v.startsWith('conta:') ? v.slice(6) : null, cartao_id: v.startsWith('cartao:') ? v.slice(7) : null };
+  const { error } = await sb.from('pluggy_contas').update(upd).eq('id', id);
+  if (error) return toast(traduzErro(error), true);
+  const pc = OF.contas.find(x => x.id === id); if (pc) Object.assign(pc, upd);
+  toast(v ? 'Vínculo salvo' : 'Esta conta não será importada');
+});
 
 </script>
 </body>
