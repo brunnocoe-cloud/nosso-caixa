@@ -199,12 +199,17 @@ Deno.serve(async (req) => {
 
     for (const v of ativos) {
       const txs: any[] = [];
-      for (let page = 1; page <= 40; page++) {
-        const r = await P(`/transactions?accountId=${v.id}&from=${desde}&to=${addDias(hoje(), 45)}&pageSize=500&page=${page}`);
-        txs.push(...(r.results || [])); if (page >= (r.totalPages || 1)) break;
+      // v2 com cursor (o /transactions paginado foi desativado pela Pluggy)
+      let caminho = `/v2/transactions?accountId=${encodeURIComponent(v.id)}&dateFrom=${desde}&dateTo=${addDias(hoje(), 45)}`;
+      for (let pag = 0; pag < 40; pag++) {
+        const r = await P(caminho);
+        txs.push(...(r.results || []));
+        const nx = r.next;
+        if (!nx) break;
+        caminho = String(nx).startsWith('http') ? new URL(nx).pathname + new URL(nx).search : String(nx).startsWith('/') ? nx : `/v2/transactions?${String(nx).replace(/^\?/, '')}`;
       }
       let bills: Record<string, string> = {};
-      if (v.cartao_id) { try { const b = await P(`/bills?accountId=${v.id}`); for (const x of b.results || []) bills[x.id] = String(x.dueDate).slice(0, 10); } catch { /* sem faturas */ } }
+      if (v.cartao_id) { try { const b = await P(`/bills?accountId=${v.id}&pageSize=500`); for (const x of b.results || []) bills[x.id] = String(x.dueDate).slice(0, 10); } catch { /* sem faturas */ } }
       const cartao = v.cartao_id ? (cartoes || []).find((c: any) => c.id === v.cartao_id) : null;
       const cartoesDaConta = (cartoes || []).filter((c: any) => !c.arquivado && c.conta_id === v.conta_id);
 
@@ -272,6 +277,13 @@ Deno.serve(async (req) => {
         novos.push(linha); comExt.add(ext);
       }
       await admin.from('pluggy_contas').update({ atualizado_em: new Date().toISOString() }).eq('id', v.id);
+    }
+    if (body.simular) {
+      const nomeDe = (l: any) => l.cartao_id ? 'cartao' : 'conta';
+      return json({ simulacao: true,
+        novos: novos.map(l => [l.data, l.tipo, nomeDe(l), l.valor, l.descricao.slice(0, 30), l.fatura_mes || '', l.categoria_id ? 1 : 0]),
+        conciliados: atualizar.map(([id, u]) => { const l = existentes.find(x => x.id === id); return [l?.data, l?.tipo, l?.valor, String(l?.descricao || '').slice(0, 30), u.data || '', u.valor ?? '']; }),
+        ignorados: exec.ignorados });
     }
     for (let i = 0; i < novos.length; i += 400) { const { error } = await admin.from('lancamentos').insert(novos.slice(i, i + 400)); if (error) throw error; }
     for (const [id, upd] of atualizar) { const { error } = await admin.from('lancamentos').update(upd).eq('id', id).eq('user_id', userId); if (error) throw error; }
