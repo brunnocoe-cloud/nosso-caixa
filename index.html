@@ -600,6 +600,22 @@ revoke all on function public.nc_disparar_pluggy() from public, anon, authentica
 
 select cron.unschedule('nosso-caixa-pluggy') where exists (select 1 from cron.job where jobname = 'nosso-caixa-pluggy');
 select cron.schedule('nosso-caixa-pluggy', '15 9,15,21,3 * * *', 'select public.nc_disparar_pluggy()');
+
+-- ---------- cofre da chave da Pluggy (só a função do servidor lê) ----------
+create or replace function public.nc_pluggy_cred() returns jsonb
+language sql security definer set search_path = public as $$
+  select jsonb_build_object('id', (select valor from privado.config where chave = 'pluggy_id'),
+                            'secret', (select valor from privado.config where chave = 'pluggy_secret'))
+$$;
+create or replace function public.nc_pluggy_cred_salvar(cid text, csecret text) returns void
+language sql security definer set search_path = public as $$
+  insert into privado.config values ('pluggy_id', cid), ('pluggy_secret', csecret)
+  on conflict (chave) do update set valor = excluded.valor
+$$;
+revoke all on function public.nc_pluggy_cred() from public, anon, authenticated;
+revoke all on function public.nc_pluggy_cred_salvar(text, text) from public, anon, authenticated;
+grant execute on function public.nc_pluggy_cred() to service_role;
+grant execute on function public.nc_pluggy_cred_salvar(text, text) to service_role;
 </script>
 <script type="text/plain" id="sqlOF">
 -- =====================================================================
@@ -668,6 +684,22 @@ revoke all on function public.nc_disparar_pluggy() from public, anon, authentica
 
 select cron.unschedule('nosso-caixa-pluggy') where exists (select 1 from cron.job where jobname = 'nosso-caixa-pluggy');
 select cron.schedule('nosso-caixa-pluggy', '15 9,15,21,3 * * *', 'select public.nc_disparar_pluggy()');
+
+-- ---------- cofre da chave da Pluggy (só a função do servidor lê) ----------
+create or replace function public.nc_pluggy_cred() returns jsonb
+language sql security definer set search_path = public as $$
+  select jsonb_build_object('id', (select valor from privado.config where chave = 'pluggy_id'),
+                            'secret', (select valor from privado.config where chave = 'pluggy_secret'))
+$$;
+create or replace function public.nc_pluggy_cred_salvar(cid text, csecret text) returns void
+language sql security definer set search_path = public as $$
+  insert into privado.config values ('pluggy_id', cid), ('pluggy_secret', csecret)
+  on conflict (chave) do update set valor = excluded.valor
+$$;
+revoke all on function public.nc_pluggy_cred() from public, anon, authenticated;
+revoke all on function public.nc_pluggy_cred_salvar(text, text) from public, anon, authenticated;
+grant execute on function public.nc_pluggy_cred() to service_role;
+grant execute on function public.nc_pluggy_cred_salvar(text, text) to service_role;
 </script>
 <script>
 /* =====================================================================
@@ -3374,9 +3406,9 @@ async function iniciarApp() {
 
 /* =====================================================================
    OPEN FINANCE (Pluggy / Meu Pluggy) — lançamentos automáticos
-   A chave secreta da Pluggy fica só no Supabase (função pluggy-sync).
+   A chave secreta da Pluggy fica só no servidor (função pluggy-sync + cofre privado).
    ===================================================================== */
-const OF = { contas: null, execs: null, carregando: false, faltaSQL: false, erro: '' };
+const OF = { contas: null, execs: null, carregando: false, faltaSQL: false, erro: '', cred: null };
 const fmtDH = s => { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
 
 async function ofCarregar() {
@@ -3388,6 +3420,7 @@ async function ofCarregar() {
     ]);
     if (a.error || b.error) { const e = a.error || b.error; if (tabelaFaltando(e)) { OF.faltaSQL = true; OF.contas = []; OF.execs = []; } else throw e; }
     else { OF.faltaSQL = false; OF.contas = a.data; OF.execs = b.data; }
+    if (!OF.faltaSQL) { try { OF.cred = (await ofChamar({ acao: 'status' })).credenciais; } catch (e) { OF.cred = false; } }
   } catch (e) { OF.erro = traduzErro(e); OF.contas = OF.contas || []; OF.execs = OF.execs || []; }
   OF.carregando = false;
   if (S.view === 'openfinance') render();
@@ -3432,37 +3465,93 @@ function vOpenFinance() {
       </div>
     </div></div>
 
-  <div class="card">${cardH('1. Conexões (Item ID do Meu Pluggy)')}
-    <div class="card-b" style="padding-top:12px">
-      <div class="f"><label for="ofItens">Item ID (um por linha)</label><textarea id="ofItens" rows="2" placeholder="ex.: 6f2c1a9e-....">${esc(itens)}</textarea></div>
-      <div class="f" style="max-width:260px"><label for="ofDesde">Importar lançamentos a partir de</label><input type="date" id="ofDesde" value="${esc(P.desde || hoje())}"></div>
-      <p class="muted" style="font-size:12px;margin-top:-4px">Use a data de hoje para trazer só o que for novo (o histórico já veio do Meu Dinheiro). Limite: até 120 dias para trás.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" data-act="ofSalvarItens">Salvar</button><button class="btn out" data-act="ofBuscarContas">${ic('banco')}Buscar contas</button></div>
+  <div class="card">${cardH('1. Conta no Meu Pluggy (gratuita)')}
+    <div class="card-b" style="padding-top:12px;font-size:14px">
+      <p style="margin-top:0">Abra <a href="https://meu.pluggy.ai" target="_blank" rel="noopener"><b>meu.pluggy.ai</b></a>, crie a conta (e-mail e senha) e conecte o banco e os cartões. A autorização é feita no app do próprio banco.</p></div></div>
+
+  <div class="card">${cardH('2. Chave da Pluggy')}
+    <div class="card-b" style="padding-top:12px;font-size:14px">
+      ${OF.cred ? `<p style="margin-top:0">${ic('taskok')} <b>Chave cadastrada.</b> Ela fica guardada só no servidor e não aparece no site.</p>
+        <button class="btn out sm" data-act="ofTrocarChave">Trocar chave</button>`
+      : `<p style="margin-top:0">Entre em <a href="https://dashboard.pluggy.ai" target="_blank" rel="noopener"><b>dashboard.pluggy.ai</b></a> (pode usar o mesmo e-mail), crie uma aplicação e copie o <b>Client ID</b> e o <b>Client Secret</b> para cá.</p>
+        <div class="f"><label for="ofCid">Client ID</label><input id="ofCid" autocomplete="off" spellcheck="false"></div>
+        <div class="f"><label for="ofSec">Client Secret</label><input id="ofSec" type="password" autocomplete="new-password" spellcheck="false"></div>
+        <button class="btn pri" data-act="ofSalvarChave">Salvar chave</button>
+        <p class="muted" style="font-size:12px">A chave é conferida na Pluggy e guardada num cofre do banco de dados que só o servidor lê.</p>`}
     </div></div>
 
-  <div class="card">${cardH('2. Para onde vai cada conta')}
+  <div class="card">${cardH('3. Conectar o banco ao Nosso Caixa')}
+    <div class="card-b" style="padding-top:12px;font-size:14px">
+      <p style="margin-top:0">Clique no botão, procure <b>MeuPluggy</b> e entre com o e-mail e a senha do Meu Pluggy. O resto é automático: as contas são buscadas, vinculadas e sincronizadas.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn pri" data-act="ofConectar" ${OF.cred ? '' : 'disabled'}>${ic('banco')}Conectar banco</button>
+        <span class="muted" style="font-size:13px">${(P.itens || []).length ? `${P.itens.length} conexão(ões) ativa(s)` : 'Nenhuma conexão ainda.'}</span></div>
+      <div class="f" style="max-width:260px;margin-top:14px"><label for="ofDesde">Importar lançamentos a partir de</label><input type="date" id="ofDesde" value="${esc(P.desde || hoje())}"></div>
+      <p class="muted" style="font-size:12px;margin-top:-4px">Hoje = só o que for novo (o histórico já veio do Meu Dinheiro). Limite: 120 dias para trás.</p>
+      <details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:13px">Avançado: informar o Item ID manualmente</summary>
+        <div class="f" style="margin-top:10px"><label for="ofItens">Item ID (um por linha)</label><textarea id="ofItens" rows="2">${esc(itens)}</textarea></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out sm" data-act="ofSalvarItens">Salvar</button><button class="btn out sm" data-act="ofBuscarContas">Buscar contas</button></div>
+      </details>
+    </div></div>
+
+  <div class="card">${cardH('4. Para onde vai cada conta')}
     <div class="card-b ${OF.contas.length ? 'flush' : ''}">${OF.contas.length ? `<div style="overflow-x:auto"><table class="t"><tr><th class="l">Conta no banco</th><th class="l">Tipo</th><th class="l">Lançar em</th><th>Atualizado</th></tr>
       ${OF.contas.map(pc => `<tr><td class="l">${esc(pc.nome || '')}${pc.numero ? ` <span class="muted">· ${esc(pc.numero)}</span>` : ''}</td><td class="l">${pc.tipo === 'CREDIT' ? 'Cartão' : 'Conta'}</td><td class="l">${destinoSel(pc)}</td><td>${fmtDH(pc.atualizado_em)}</td></tr>`).join('')}</table></div>`
-      : '<p class="muted" style="padding-top:12px">Depois de informar o Item ID, clique em <b>Buscar contas</b>.</p>'}</div></div>
+      : '<p class="muted" style="padding-top:12px">Aparece aqui depois de conectar o banco. O vínculo é sugerido pelo nome e pode ser trocado.</p>'}</div></div>
 
   <div class="card">${cardH('Histórico de sincronizações')}
     <div class="card-b ${OF.execs.length ? 'flush' : ''}">${OF.execs.length ? `<div style="overflow-x:auto"><table class="t"><tr><th class="l">Quando</th><th class="l">Origem</th><th>Novos</th><th>Conciliados</th><th class="l">Situação</th></tr>
       ${OF.execs.map(x => `<tr><td class="l">${fmtDH(x.fim || x.inicio)}</td><td class="l">${x.origem === 'agendado' ? 'Automática' : 'Manual'}</td><td>${x.novos ?? 0}</td><td>${x.conciliados ?? 0}</td><td class="l">${x.erro ? `<span style="color:var(--late)">${esc(x.erro)}</span>` : 'OK'}</td></tr>`).join('')}</table></div>`
       : '<p class="muted" style="padding-top:12px">Nenhuma sincronização ainda.</p>'}</div></div>
 
-  <div class="card">${cardH('Como conectar (feito uma única vez)')}
-    <div class="card-b" style="padding-top:8px;font-size:14px"><ol style="padding-left:20px;line-height:1.6">
-      <li>Em <a href="https://meu.pluggy.ai" target="_blank" rel="noopener">meu.pluggy.ai</a>, crie sua conta e conecte o banco e os cartões (autorização pelo app do banco).</li>
-      <li>Em <a href="https://dashboard.pluggy.ai" target="_blank" rel="noopener">dashboard.pluggy.ai</a>, crie uma aplicação e anote o <b>Client ID</b> e o <b>Client Secret</b>.</li>
-      <li>Na aplicação, use <b>Ir para Demo</b> e conecte o conector <b>MeuPluggy</b>; ao final, copie o <b>Item ID</b>.</li>
-      <li>No Supabase, em <b>Edge Functions → Secrets</b>, crie <code>PLUGGY_CLIENT_ID</code> e <code>PLUGGY_CLIENT_SECRET</code>.</li>
-      <li>Aqui: cole o Item ID, clique em <b>Buscar contas</b>, escolha o destino de cada uma e clique em <b>Sincronizar agora</b>.</li>
-    </ol></div></div>
   </div>`;
+}
+
+function ofCarregarWidget() {
+  if (window.PluggyConnect) return Promise.resolve();
+  return new Promise((ok, falha) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.pluggy.ai/pluggy-connect/v2.14.2/pluggy-connect.js';
+    sc.onload = () => ok(); sc.onerror = () => falha(new Error('Não foi possível carregar a janela de conexão da Pluggy.'));
+    document.head.appendChild(sc);
+  });
 }
 
 Object.assign(ACOES, {
   ofCopiarSQL: async () => { await navigator.clipboard.writeText($('#sqlOF').textContent.trim()); toast('SQL copiado. Cole no SQL Editor e clique em Run.'); },
+  ofSalvarChave: async (d, el) => {
+    const clientId = $('#ofCid').value.trim(), clientSecret = $('#ofSec').value.trim();
+    if (!clientId || !clientSecret) return toast('Cole o Client ID e o Client Secret.', true);
+    el.disabled = true; el.textContent = 'Conferindo na Pluggy…';
+    try { await ofChamar({ acao: 'salvar_credenciais', clientId, clientSecret }); OF.cred = true; OF.erro = ''; toast('Chave conferida e guardada'); }
+    catch (e) { OF.erro = e.message; toast(e.message, true); }
+    render();
+  },
+  ofTrocarChave: () => { OF.cred = false; render(); },
+  ofConectar: async (d, el) => {
+    el.disabled = true;
+    try {
+      const { accessToken } = await ofChamar({ acao: 'connect_token' });
+      await ofCarregarWidget();
+      const pc = new window.PluggyConnect({
+        connectToken: accessToken, language: 'pt', includeSandbox: false,
+        onSuccess: async ({ item }) => {
+          const itens = [...new Set([...(S.prefs.pluggy?.itens || []), item.id])];
+          S.prefs.pluggy = { ...(S.prefs.pluggy || {}), itens, desde: $('#ofDesde')?.value || S.prefs.pluggy?.desde || hoje() };
+          await salvarPrefs('Banco conectado');
+          try {
+            await ofChamar({ acao: 'contas', itens }); toast('Contas vinculadas. Sincronizando…');
+            const r = await ofChamar({ acao: 'sincronizar' }); OF.erro = '';
+            toast(`${r.novos} lançamento(s) novo(s), ${r.conciliados} conciliado(s)`); await carregar(['lancamentos']);
+          } catch (e) { OF.erro = e.message; }
+          OF.contas = null; render();
+        },
+        onError: ({ message }) => { OF.erro = 'Conexão não concluída: ' + (message || 'erro'); render(); },
+        onClose: () => { el.disabled = false; },
+      });
+      pc.init();
+    } catch (e) { OF.erro = e.message; toast(e.message, true); el.disabled = false; render(); }
+  },
   ofSalvarItens: async () => {
     const itens = $('#ofItens').value.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
     S.prefs.pluggy = { ...(S.prefs.pluggy || {}), itens, desde: $('#ofDesde').value || hoje() };
@@ -3490,6 +3579,7 @@ Object.assign(ACOES, {
 });
 
 document.addEventListener('change', async e => {
+  if (e.target.id === 'ofDesde') { S.prefs.pluggy = { ...(S.prefs.pluggy || {}), desde: e.target.value || hoje() }; return salvarPrefs('Data salva'); }
   const id = e.target.dataset?.ofDestino;
   if (id === undefined) return;
   const v = e.target.value;

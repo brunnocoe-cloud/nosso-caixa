@@ -71,20 +71,40 @@ Deno.serve(async (req) => {
   }
   if (!userId) return json({ erro: 'Faça login no Nosso Caixa.' }, 401);
 
-  const clientId = Deno.env.get('PLUGGY_CLIENT_ID'), clientSecret = Deno.env.get('PLUGGY_CLIENT_SECRET');
-  if (!clientId || !clientSecret) return json({ erro: 'As credenciais da Pluggy ainda não foram cadastradas no Supabase (Edge Functions → Secrets: PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET).' }, 400);
+  // ---------- credenciais da Pluggy (segredo do Supabase ou cofre privado do banco) ----------
+  const autenticar = async (id: string, secret: string) => {
+    const r = await fetch(PLUGGY + '/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: id, clientSecret: secret }) });
+    return r.ok ? (await r.json()).apiKey as string : null;
+  };
+  if (body.acao === 'salvar_credenciais') {
+    const id = String(body.clientId || '').trim(), secret = String(body.clientSecret || '').trim();
+    if (!id || !secret) return json({ erro: 'Informe o Client ID e o Client Secret.' }, 400);
+    if (!(await autenticar(id, secret))) return json({ erro: 'A Pluggy não aceitou esse Client ID / Client Secret. Confira se copiou os dois por completo.' }, 400);
+    const { error } = await admin.rpc('nc_pluggy_cred_salvar', { cid: id, csecret: secret });
+    if (error) return json({ erro: 'Não foi possível guardar a chave: ' + error.message }, 500);
+    return json({ ok: true });
+  }
+  let clientId = Deno.env.get('PLUGGY_CLIENT_ID') || '', clientSecret = Deno.env.get('PLUGGY_CLIENT_SECRET') || '';
+  if (!clientId || !clientSecret) { const { data: c } = await admin.rpc('nc_pluggy_cred'); clientId = c?.id || ''; clientSecret = c?.secret || ''; }
+  if (body.acao === 'status') return json({ credenciais: Boolean(clientId && clientSecret) });
+  if (!clientId || !clientSecret) return json({ erro: 'Falta cadastrar a chave da Pluggy (Client ID e Client Secret) na tela Open Finance.' }, 400);
 
   const exec = { user_id: userId, origem, novos: 0, conciliados: 0, ignorados: 0, erro: null as string | null, detalhes: [] as string[] };
   try {
     // ---------- Pluggy ----------
-    const auth = await fetch(PLUGGY + '/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId, clientSecret }) });
-    if (!auth.ok) throw new Error('A Pluggy recusou as credenciais (Client ID / Client Secret). Confira os segredos no Supabase.');
-    const { apiKey } = await auth.json();
+    const apiKey = await autenticar(clientId, clientSecret);
+    if (!apiKey) throw new Error('A Pluggy recusou a chave cadastrada (Client ID / Client Secret). Cadastre-a de novo na tela Open Finance.');
     const P = async (path: string) => {
       const r = await fetch(PLUGGY + path, { headers: { 'X-API-KEY': apiKey } });
       if (!r.ok) throw new Error(`Pluggy ${r.status} em ${path.split('?')[0]}: ${(await r.text()).slice(0, 200)}`);
       return r.json();
     };
+    if (body.acao === 'connect_token') {
+      const r = await fetch(PLUGGY + '/connect_token', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+        body: JSON.stringify(body.itemId ? { itemId: body.itemId, options: { clientUserId: userId } } : { options: { clientUserId: userId, avoidDuplicates: true } }) });
+      if (!r.ok) throw new Error('Pluggy não gerou o acesso de conexão: ' + (await r.text()).slice(0, 200));
+      return json({ accessToken: (await r.json()).accessToken });
+    }
     const { data: prefRow } = await admin.from('preferencias').select('dados').eq('user_id', userId).limit(1);
     const prefs = prefRow?.[0]?.dados || {};
     const itens: string[] = (body.itens || prefs.pluggy?.itens || []).map((s: string) => String(s).trim()).filter(Boolean);
@@ -93,13 +113,31 @@ Deno.serve(async (req) => {
     // ---------- listar contas para o vínculo ----------
     if (body.acao === 'contas') {
       const contas: any[] = [];
+      const [{ data: ncContas }, { data: ncCartoes }, { data: jaVinc }] = await Promise.all([
+        admin.from('contas').select('id,nome,arquivada').eq('user_id', userId),
+        admin.from('cartoes').select('id,nome,arquivado').eq('user_id', userId),
+        admin.from('pluggy_contas').select('id,conta_id,cartao_id').eq('user_id', userId),
+      ]);
+      const palavras = (s: string) => semAcento(s).split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !['conta', 'corrente', 'cartao', 'credito', 'banco', 'poupanca', 'card'].includes(w));
+      const adivinhar = (lista: any[], ...textos: string[]) => {
+        const ws = new Set(textos.flatMap(t => palavras(t || '')));
+        const achados = lista.filter(x => palavras(x.nome).some(w => ws.has(w)));
+        return achados.length === 1 ? achados[0].id : null;
+      };
       for (const it of itens) {
         const item = await P('/items/' + it);
         const acc = await P('/accounts?itemId=' + it);
         for (const a of acc.results || []) {
           contas.push({ id: a.id, item_id: it, nome: a.name || a.marketingName, tipo: a.type, subtipo: a.subtype, numero: a.number, saldo: a.balance,
             banco: item.connector?.name, status: item.status, atualizado: item.lastUpdatedAt || item.updatedAt });
-          await admin.from('pluggy_contas').upsert({ id: a.id, user_id: userId, item_id: it, nome: a.name || a.marketingName, tipo: a.type, numero: a.number }, { onConflict: 'id' });
+          const reg: any = { id: a.id, user_id: userId, item_id: it, nome: a.name || a.marketingName, tipo: a.type, numero: a.number };
+          const antigo = (jaVinc || []).find((x: any) => x.id === a.id);
+          if (!antigo || (!antigo.conta_id && !antigo.cartao_id)) {
+            // primeiro vínculo automático pelo nome (dá para trocar na tela)
+            if (a.type === 'CREDIT') reg.cartao_id = adivinhar((ncCartoes || []).filter((c: any) => !c.arquivado), a.name, a.marketingName, a.creditData?.brand);
+            else reg.conta_id = adivinhar((ncContas || []).filter((c: any) => !c.arquivada), a.name, a.marketingName, item.connector?.name);
+          }
+          await admin.from('pluggy_contas').upsert(reg, { onConflict: 'id' });
         }
       }
       return json({ contas });

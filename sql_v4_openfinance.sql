@@ -64,3 +64,19 @@ revoke all on function public.nc_disparar_pluggy() from public, anon, authentica
 
 select cron.unschedule('nosso-caixa-pluggy') where exists (select 1 from cron.job where jobname = 'nosso-caixa-pluggy');
 select cron.schedule('nosso-caixa-pluggy', '15 9,15,21,3 * * *', 'select public.nc_disparar_pluggy()');
+
+-- ---------- cofre da chave da Pluggy (só a função do servidor lê) ----------
+create or replace function public.nc_pluggy_cred() returns jsonb
+language sql security definer set search_path = public as $$
+  select jsonb_build_object('id', (select valor from privado.config where chave = 'pluggy_id'),
+                            'secret', (select valor from privado.config where chave = 'pluggy_secret'))
+$$;
+create or replace function public.nc_pluggy_cred_salvar(cid text, csecret text) returns void
+language sql security definer set search_path = public as $$
+  insert into privado.config values ('pluggy_id', cid), ('pluggy_secret', csecret)
+  on conflict (chave) do update set valor = excluded.valor
+$$;
+revoke all on function public.nc_pluggy_cred() from public, anon, authenticated;
+revoke all on function public.nc_pluggy_cred_salvar(text, text) from public, anon, authenticated;
+grant execute on function public.nc_pluggy_cred() to service_role;
+grant execute on function public.nc_pluggy_cred_salvar(text, text) to service_role;
