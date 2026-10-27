@@ -946,7 +946,9 @@ async function semearCategorias() {
   if (filhos.length) await op(sb.from('categorias').insert(filhos));
   S.categorias = await fetchAll('categorias');
 }
-// séries "Fixa": mantém lançamentos gerados até 24 meses à frente
+// séries "Fixa": mantém lançamentos gerados até 24 meses à frente, respeitando o intervalo
+// da série (mensal, trimestral, anual…) e só continuando as que ainda estão ativas
+const difMeses = (a, b) => (+b.slice(0, 4) - +a.slice(0, 4)) * 12 + (+b.slice(5, 7) - +a.slice(5, 7));
 async function estenderFixas() {
   const grupos = new Map();
   for (const l of S.lancamentos) if (l.grupo_id && (l.serie === 'fixa' || l.serie === 'fixa_fim')) {
@@ -956,13 +958,17 @@ async function estenderFixas() {
   const limite = addMesesData(hoje(), 24), novos = [];
   for (const ls of grupos.values()) {
     if (ls.some(l => l.serie === 'fixa_fim')) continue;
-    const ult = ls.reduce((a, b) => a.data > b.data ? a : b);
-    let d = ult.data, k = 1;
+    ls.sort((a, b) => a.data < b.data ? -1 : 1);
+    // intervalo mais comum entre ocorrências (padrão: 1 mês)
+    const gaps = {}; for (let i = 1; i < ls.length; i++) { const g = difMeses(ls[i - 1].data, ls[i].data); if (g > 0) gaps[g] = (gaps[g] || 0) + 1; }
+    const gap = +(Object.entries(gaps).sort((a, b) => b[1] - a[1])[0]?.[0] || 1);
+    const ult = ls[ls.length - 1];
+    // série encerrada: a última ocorrência ficou bem antes do horizonte de 24 meses
+    if (difMeses(ult.data, limite) > gap + 1) continue;
     const base = { ...ult }; ['id', 'criado_em', 'user_id'].forEach(x => delete base[x]);
-    while (k < 400) {
-      const nd = addMesesData(ult.data, k++);
+    for (let k = 1; k < 200; k++) {
+      const nd = addMesesData(ult.data, k * gap);
       if (nd > limite) break;
-      if (nd <= d) continue;
       const n = { ...base, data: nd, pago: false, conciliado: false, anexos: [], ext_id: null };
       if (base.cartao_id) { const c = byId('cartoes', base.cartao_id); if (c) n.fatura_mes = faturaYM(c, nd) + '-01'; }
       novos.push(n);
