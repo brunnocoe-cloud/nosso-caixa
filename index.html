@@ -3511,7 +3511,7 @@ function ofCarregarWidget() {
   if (window.PluggyConnect) return Promise.resolve();
   return new Promise((ok, falha) => {
     const sc = document.createElement('script');
-    sc.src = 'https://cdn.pluggy.ai/pluggy-connect/v2.14.2/pluggy-connect.js';
+    sc.src = 'https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js';
     sc.onload = () => ok(); sc.onerror = () => falha(new Error('Não foi possível carregar a janela de conexão da Pluggy.'));
     document.head.appendChild(sc);
   });
