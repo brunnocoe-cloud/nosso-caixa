@@ -49,6 +49,7 @@ const CAT_PLUGGY: [RegExp, string][] = [
 
 // ===================== RELATÓRIO DIÁRIO (Telegram) =====================
 const brl = (v: number) => (v < 0 ? '-' : '') + 'R$ ' + Math.abs(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const brlS = (v: number) => (v < 0 ? '🔴 ' : '') + brl(v);
 const escH = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dataBR = (ds: string) => `${ds.slice(8, 10)}/${ds.slice(5, 7)}`;
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -103,8 +104,8 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
     sc = r2(sc); prev = r2(prev); totalNC += sc;
     if (Math.abs(sc) < 0.005 && !(c.id in saldosBanco)) continue;
     const banco = saldosBanco[c.id];
-    L.push(`• ${escH(c.nome)}: <b>${brl(banco ?? sc)}</b>` + (banco !== undefined && Math.abs(banco - sc) >= 1 ? ` <i>(no Nosso Caixa: ${brl(sc)})</i>` : ''));
-    if (Math.abs(prev - sc) >= 1) L.push(`   previsto p/ fim do mês: ${brl(prev)}`);
+    L.push(`• ${escH(c.nome)}: <b>${brlS(banco ?? sc)}</b>` + (banco !== undefined && Math.abs(banco - sc) >= 1 ? ` <i>(no Nosso Caixa: ${brlS(sc)})</i>` : ''));
+    if (Math.abs(prev - sc) >= 1) L.push(`   previsto p/ fim do mês: ${brlS(prev)}`);
     const limite = prefs.alerta_saldo;
     if (limite !== undefined && limite !== null && limite !== '' && (banco ?? sc) < Number(limite)) alertasSaldo.push(`${escH(c.nome)} está em ${brl(banco ?? sc)}, abaixo do alerta de ${brl(Number(limite))}`);
     if (limite !== undefined && limite !== null && limite !== '' && prev < Number(limite) && (banco ?? sc) >= Number(limite)) alertasSaldo.push(`${escH(c.nome)} deve ficar em ${brl(prev)} até o fim do mês, abaixo do alerta de ${brl(Number(limite))}`);
