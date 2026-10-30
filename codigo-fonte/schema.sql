@@ -293,3 +293,9 @@ select cron.unschedule('nosso-caixa-presync') where exists (select 1 from cron.j
 select cron.unschedule('nosso-caixa-resumo')  where exists (select 1 from cron.job where jobname = 'nosso-caixa-resumo');
 select cron.schedule('nosso-caixa-presync', '50 10 * * *', 'select public.nc_disparar(''sincronizar'')');
 select cron.schedule('nosso-caixa-resumo',  '0 11 * * *',  'select public.nc_disparar(''relatorio'')');
+
+-- ---------- resumo também às 18h (17h50 sincroniza) ----------
+select cron.unschedule('nosso-caixa-presync-18') where exists (select 1 from cron.job where jobname = 'nosso-caixa-presync-18');
+select cron.unschedule('nosso-caixa-resumo-18')  where exists (select 1 from cron.job where jobname = 'nosso-caixa-resumo-18');
+select cron.schedule('nosso-caixa-presync-18', '50 20 * * *', 'select public.nc_disparar(''sincronizar'')');
+select cron.schedule('nosso-caixa-resumo-18',  '0 21 * * *',  'select public.nc_disparar(''relatorio'')');

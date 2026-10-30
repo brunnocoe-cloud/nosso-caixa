@@ -78,7 +78,8 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
   ]);
   const num = (v: any) => Number(v) || 0;
   const L: string[] = [];
-  L.push(`<b>☀️ Nosso Caixa · ${dataBR(h)}</b>`);
+  const hora = new Date(Date.now() - 3 * 3600e3).getUTCHours();
+  L.push(`<b>${hora < 12 ? '☀️' : hora < 18 ? '🌤️' : '🌙'} Nosso Caixa · ${dataBR(h)} · ${p2(hora)}h</b>`);
 
   // ---- saldo do banco ----
   L.push('', '<b>🏦 Saldo</b>');
@@ -222,7 +223,36 @@ Deno.serve(async (req) => {
   // ---------- quem está chamando ----------
   let userId: string | null = null, origem = 'manual';
   const cron = req.headers.get('x-nc-cron');
-  if (cron) {
+  const tgSecret = req.headers.get('x-telegram-bot-api-secret-token');
+  if (tgSecret) {
+    // mensagem recebida pelo bot (webhook do Telegram) — sempre responde 200 para o Telegram não reenviar
+    const { data: seg } = await admin.rpc('nc_cfg_get', { k: 'telegram_webhook_secret' });
+    if (!seg || seg !== tgSecret) return json({ ok: false }, 200);
+    const msg = body.message || body.edited_message;
+    const chat = msg?.chat, texto = String(msg?.text || '').trim();
+    if (!chat || chat.type !== 'private') return json({ ok: true });
+    const { data: tk } = await admin.rpc('nc_cfg_get', { k: 'telegram_token' });
+    const { data: ch } = await admin.rpc('nc_cfg_get', { k: 'telegram_chats' });
+    const token = String(tk || ''), chats = String(ch || '').split(',').filter(Boolean);
+    if (!token) return json({ ok: true });
+    if (!chats.includes(String(chat.id))) {
+      // guarda quem pediu acesso; só entra quando alguém clicar em "Vincular" no site (com login)
+      const { data: pd } = await admin.rpc('nc_cfg_get', { k: 'telegram_pendentes' });
+      const pend: Record<string, string> = (() => { try { return JSON.parse(String(pd || '{}')); } catch { return {}; } })();
+      pend[String(chat.id)] = chat.first_name || String(chat.id);
+      await admin.rpc('nc_cfg_set', { k: 'telegram_pendentes', v: JSON.stringify(pend) });
+      await tg(token, 'sendMessage', { chat_id: chat.id, text: '🔒 Este bot é privado. Para receber o resumo, peça para clicarem em "Vincular" no Nosso Caixa (Open Finance → Resumo diário no Telegram).' }).catch(() => {});
+      return json({ ok: true });
+    }
+    if (!/resumo|saldo|relat/i.test(texto)) {
+      await tg(token, 'sendMessage', { chat_id: chat.id, text: 'Escreva "resumo" para receber o resumo financeiro agora. Ele também chega sozinho às 8h e às 18h.' }).catch(() => {});
+      return json({ ok: true });
+    }
+    await tg(token, 'sendMessage', { chat_id: chat.id, text: '⏳ Montando o resumo…' }).catch(() => {});
+    const { data: p } = await admin.from('preferencias').select('user_id').limit(1);
+    userId = p?.[0]?.user_id ?? null; origem = 'telegram';
+    body = { acao: 'relatorio', chatDestino: String(chat.id) };
+  } else if (cron) {
     const { data: ok } = await admin.rpc('nc_cron_ok', { t: cron });
     if (ok !== true) return json({ erro: 'Não autorizado.' }, 401);
     const { data: p } = await admin.from('preferencias').select('user_id').limit(1);
@@ -249,19 +279,43 @@ Deno.serve(async (req) => {
       if (!/^\d+:[\w-]{30,}$/.test(token)) return json({ erro: 'Esse não parece um token do BotFather (formato 123456789:ABC...).' }, 400);
       const me = await tg(token, 'getMe', {});
       await setCfg('telegram_token', token);
+      await setCfg('telegram_webhook_secret', '');
       return json({ ok: true, bot: me.username });
     }
     if (body.acao === 'telegram_vincular') {
       const token = await cfg('telegram_token');
       if (!token) return json({ erro: 'Cadastre primeiro o token do bot.' }, 400);
-      const ups = await tg(token, 'getUpdates', { limit: 100 });
       const ids = new Set((await cfg('telegram_chats')).split(',').filter(Boolean));
       const novos: string[] = [];
-      for (const u of ups) { const ch = u.message?.chat; if (ch?.type === 'private' && !ids.has(String(ch.id))) { ids.add(String(ch.id)); novos.push(ch.first_name || String(ch.id)); } }
+      const pend: Record<string, string> = {};
+      try { Object.assign(pend, JSON.parse((await cfg('telegram_pendentes')) || '{}')); } catch { /* vazio */ }
+      for (const [id, nome] of Object.entries(pend)) if (!ids.has(id)) { ids.add(id); novos.push(nome); }
+      await setCfg('telegram_pendentes', '{}');
+      const wh = await tg(token, 'getWebhookInfo', {});
+      if (!wh.url) {
+        const ups = await tg(token, 'getUpdates', { limit: 100 });
+        for (const u of ups) { const ch = u.message?.chat; if (ch?.type === 'private' && !ids.has(String(ch.id))) { ids.add(String(ch.id)); novos.push(ch.first_name || String(ch.id)); } }
+      }
       if (!ids.size) return json({ erro: 'O bot ainda não recebeu nenhuma mensagem. Abra o bot no Telegram, toque em Iniciar (/start) e tente de novo.' }, 400);
       await setCfg('telegram_chats', [...ids].join(','));
-      for (const id of ids) await tg(token, 'sendMessage', { chat_id: id, text: '✅ Nosso Caixa vinculado. O resumo financeiro chega aqui todos os dias às 8h.' }).catch(() => {});
+      for (const id of ids) await tg(token, 'sendMessage', { chat_id: id, text: '✅ Nosso Caixa vinculado. O resumo chega aqui às 8h e às 18h. Escreva "resumo" a qualquer hora para receber na hora.' }).catch(() => {});
       return json({ ok: true, conversas: ids.size, novos });
+    }
+    if (body.acao === 'telegram_webhook') {
+      const token = await cfg('telegram_token');
+      if (!token) return json({ erro: 'Cadastre primeiro o token do bot.' }, 400);
+      // antes de ligar o webhook, guarda quem já mandou /start (depois o getUpdates deixa de funcionar)
+      try {
+        const pend: Record<string, string> = JSON.parse((await cfg('telegram_pendentes')) || '{}');
+        const ids = new Set((await cfg('telegram_chats')).split(',').filter(Boolean));
+        for (const u of await tg(token, 'getUpdates', { limit: 100 })) { const c = u.message?.chat; if (c?.type === 'private' && !ids.has(String(c.id))) pend[String(c.id)] = c.first_name || String(c.id); }
+        await setCfg('telegram_pendentes', JSON.stringify(pend));
+      } catch { /* webhook já ligado */ }
+      let segredo = await cfg('telegram_webhook_secret');
+      if (!segredo) { segredo = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, ''); await setCfg('telegram_webhook_secret', segredo); }
+      await tg(token, 'setWebhook', { url: SUPA_URL + '/functions/v1/pluggy-sync', secret_token: segredo, allowed_updates: ['message'], drop_pending_updates: false });
+      await tg(token, 'setMyCommands', { commands: [{ command: 'resumo', description: 'Receber o resumo financeiro agora' }] }).catch(() => {});
+      return json({ ok: true });
     }
     if (body.acao === 'telegram_desvincular') { await setCfg('telegram_chats', ''); return json({ ok: true }); }
   } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
@@ -352,8 +406,9 @@ Deno.serve(async (req) => {
       if (body.previa) return json({ texto });
       const token = await cfg('telegram_token'), chats = (await cfg('telegram_chats')).split(',').filter(Boolean);
       if (!token || !chats.length) return json({ erro: 'Telegram ainda não configurado (token e /start no bot).', texto }, 400);
-      for (const id of chats) await tg(token, 'sendMessage', { chat_id: id, text: texto, parse_mode: 'HTML', disable_web_page_preview: true });
-      return json({ ok: true, enviados: chats.length });
+      const destinos = body.chatDestino ? chats.filter(c => c === body.chatDestino) : chats;
+      for (const id of destinos) await tg(token, 'sendMessage', { chat_id: id, text: texto, parse_mode: 'HTML', disable_web_page_preview: true });
+      return json({ ok: true, enviados: destinos.length });
     }
     if (!ativos.length) return json({ erro: 'Nenhuma conta da Pluggy vinculada. Em Configurações → Open Finance, clique em "Buscar contas" e escolha o destino de cada uma.' }, 400);
 

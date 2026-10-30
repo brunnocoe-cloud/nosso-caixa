@@ -94,9 +94,9 @@ function vOpenFinance() {
       ${OF.contas.map(pc => `<tr><td class="l">${esc(pc.nome || '')}${pc.numero ? ` <span class="muted">· ${esc(pc.numero)}</span>` : ''}</td><td class="l">${pc.tipo === 'CREDIT' ? 'Cartão' : 'Conta'}</td><td class="l">${destinoSel(pc)}</td><td>${fmtDH(pc.atualizado_em)}</td></tr>`).join('')}</table></div>`
       : '<p class="muted" style="padding-top:12px">Aparece aqui depois de conectar o banco. O vínculo é sugerido pelo nome e pode ser trocado.</p>'}</div></div>
 
-  <div class="card">${cardH('Resumo diário no Telegram (8h)')}
+  <div class="card">${cardH('Resumo no Telegram (8h e 18h)')}
     <div class="card-b" style="padding-top:12px;font-size:14px">
-      <p style="margin-top:0">Todo dia às <b>8h</b> chega no Telegram: saldo do banco, gasto no cartão, valor das faturas, Pix enviados e recebidos e quanto do orçamento já foi usado. Gratuito.</p>
+      <p style="margin-top:0">Todo dia às <b>8h</b> e às <b>18h</b> chega no Telegram (ou na hora, escrevendo <b>resumo</b> para o bot): saldo do banco, gasto no cartão, valor das faturas, Pix enviados e recebidos e quanto do orçamento já foi usado. Gratuito.</p>
       ${OF.tg?.token ? `<p>${ic('taskok')} Bot <b>@${esc(OF.tg.bot || '?')}</b> configurado · ${OF.tg.conversas ? `<b>${OF.tg.conversas}</b> pessoa(s) recebendo` : '<span style="color:var(--late)">ninguém vinculado ainda</span>'}</p>
         <ol style="padding-left:20px;line-height:1.6;margin:0 0 10px">
           <li>Abra <a href="https://t.me/${esc(OF.tg.bot || '')}" target="_blank" rel="noopener"><b>t.me/${esc(OF.tg.bot || '')}</b></a> no celular e toque em <b>Iniciar</b>. A Rúbia pode fazer o mesmo para receber também.</li>
@@ -132,13 +132,13 @@ Object.assign(ACOES, {
   tgSalvar: async (d, el) => {
     const token = $('#tgToken').value.trim(); if (!token) return toast('Cole o token do BotFather.', true);
     el.disabled = true;
-    try { const r = await ofChamar({ acao: 'telegram_salvar', token }); toast(`Bot @${r.bot} configurado`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    try { const r = await ofChamar({ acao: 'telegram_salvar', token }); await ofChamar({ acao: 'telegram_webhook' }); toast(`Bot @${r.bot} configurado`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
     OF.contas = null; render();
   },
   tgTrocar: () => { OF.tg = { token: false }; render(); },
   tgVincular: async (d, el) => {
     el.disabled = true;
-    try { const r = await ofChamar({ acao: 'telegram_vincular' }); toast(`${r.conversas} pessoa(s) vinculada(s). Confira a mensagem no Telegram.`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    try { const r = await ofChamar({ acao: 'telegram_vincular' }); await ofChamar({ acao: 'telegram_webhook' }).catch(() => {}); toast(`${r.conversas} pessoa(s) vinculada(s). Confira a mensagem no Telegram.`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
     OF.contas = null; render();
   },
   tgTeste: async (d, el) => {
