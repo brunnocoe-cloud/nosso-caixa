@@ -330,8 +330,11 @@ Deno.serve(async (req) => {
             banco: item.connector?.name, status: item.status, atualizado: item.lastUpdatedAt || item.updatedAt });
           const reg: any = { id: a.id, user_id: userId, item_id: it, nome: a.name || a.marketingName, tipo: a.type, numero: a.number };
           const antigo = (jaVinc || []).find((x: any) => x.id === a.id);
-          if (!antigo || (!antigo.conta_id && !antigo.cartao_id)) {
+          if (!antigo) { // só sugere na primeira vez; depois vale a escolha feita na tela
             // primeiro vínculo automático pelo nome (dá para trocar na tela)
+            // a mesma conta já vinculada por outra conexão (ex.: Visa repetido): não importar de novo
+            const repetida = (jaVinc || []).some((x: any) => x.id !== a.id && (x.conta_id || x.cartao_id) && contas.some(c => c.id === x.id && c.tipo === a.type && c.subtipo === a.subtype && c.numero === a.number)) || contas.some(c => c.id !== a.id && c.tipo === a.type && c.subtipo === a.subtype && c.numero === a.number);
+            if (repetida) { /* fica como não importar */ } else
             if (a.type === 'CREDIT') reg.cartao_id = adivinhar((ncCartoes || []).filter((c: any) => !c.arquivado), a.name, a.marketingName, a.creditData?.brand);
             else reg.conta_id = adivinhar((ncContas || []).filter((c: any) => !c.arquivada), a.name, a.marketingName, item.connector?.name);
           }
