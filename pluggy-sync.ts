@@ -74,7 +74,7 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
     tudo(admin, 'cartoes', 'id,nome,arquivado,limite,dia_fechamento,dia_vencimento,faturas_fechadas', userId),
     tudo(admin, 'categorias', 'id,nome,parent_id', userId),
     tudo(admin, 'orcamentos', 'id,categoria_id,mes,valor', userId),
-    tudo(admin, 'lancamentos', 'id,tipo,valor,data,pago,conta_id,conta_destino_id,cartao_id,fatura_mes,categoria_id,serie', userId),
+    tudo(admin, 'lancamentos', 'id,tipo,descricao,valor,data,pago,conta_id,conta_destino_id,cartao_id,fatura_mes,categoria_id,serie', userId),
   ]);
   const num = (v: any) => Number(v) || 0;
   const L: string[] = [];
@@ -104,6 +104,32 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
     L.push(`• ${escH(c.nome)}: <b>${brl(banco ?? sc)}</b>` + (banco !== undefined && Math.abs(banco - sc) >= 1 ? ` <i>(no Nosso Caixa: ${brl(sc)})</i>` : ''));
     if (Math.abs(prev - sc) >= 1) L.push(`   previsto p/ fim do mês: ${brl(prev)}`);
   }
+
+  // ---- contas pagas e valores recebidos (lançamentos confirmados nas contas) ----
+  const idsContas = new Set(contas.map((c: any) => c.id));
+  const nomeConta = (id: string) => (contas.find((c: any) => c.id === id) as any)?.nome || '';
+  const nomeCartao = (id: string) => (cartoes.find((c: any) => c.id === id) as any)?.nome || '';
+  const desc = (l: any) => escH(l.tipo === 'pagamento_fatura' ? `Fatura ${nomeCartao(l.cartao_id)}` : String(l.descricao || '').replace(/\s+/g, ' ').slice(0, 34));
+  const saidas = lancs.filter((l: any) => l.pago && idsContas.has(l.conta_id) && (l.tipo === 'pagamento_fatura' || (l.tipo === 'despesa' && !l.cartao_id)));
+  const entradas = lancs.filter((l: any) => l.pago && idsContas.has(l.conta_id) && l.tipo === 'receita' && !l.cartao_id);
+  const lista = (arr: any[], max: number) => {
+    const ord = [...arr].sort((a, b) => num(b.valor) - num(a.valor));
+    const out = ord.slice(0, max).map(l => `   ${desc(l)} · ${brl(num(l.valor))}`);
+    if (ord.length > max) out.push(`   <i>+ ${ord.length - max} outro(s)</i>`);
+    return out;
+  };
+  const soma2 = (arr: any[]) => r2(arr.reduce((s: number, l: any) => s + num(l.valor), 0));
+  const pagOntem = saidas.filter((l: any) => l.data === ontem), pagMes = saidas.filter((l: any) => l.data.slice(0, 7) === ym && l.data <= h);
+  const recOntem = entradas.filter((l: any) => l.data === ontem), recMes = entradas.filter((l: any) => l.data.slice(0, 7) === ym && l.data <= h);
+  L.push('', `<b>✅ Contas pagas ontem</b>`);
+  if (pagOntem.length) L.push(`• ${pagOntem.length} pagamento(s) · <b>${brl(soma2(pagOntem))}</b>`, ...lista(pagOntem, 8));
+  else L.push('• Nenhum pagamento ontem.');
+  L.push(`<i>No mês: ${pagMes.length} pagamento(s) · ${brl(soma2(pagMes))}</i>`);
+  L.push('', `<b>💰 Valores recebidos</b>`);
+  if (recOntem.length) L.push(`• Ontem: <b>${brl(soma2(recOntem))}</b>`, ...lista(recOntem, 6));
+  else L.push('• Ontem: nada recebido.');
+  L.push(`• No mês: <b>${brl(soma2(recMes))}</b>`);
+  if (recMes.length) L.push(...lista(recMes, 4).map(x => x.replace('   ', '   ↳ ')));
 
   // ---- Pix (direto do banco) ----
   const contaBanco = vinculos.filter(x => x.conta_id);
