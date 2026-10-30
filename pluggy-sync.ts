@@ -151,6 +151,19 @@ Deno.serve(async (req) => {
     const ativos = (vinculos || []).filter((v: any) => v.conta_id || v.cartao_id);
     if (!ativos.length) return json({ erro: 'Nenhuma conta da Pluggy vinculada. Em Configurações → Open Finance, clique em "Buscar contas" e escolha o destino de cada uma.' }, 400);
 
+    if (body.acao === 'diagnostico') {
+      const ini = body.desde || addDias(hoje(), -10);
+      const rel: any[] = [];
+      for (const v of ativos) {
+        const r = await P(`/v2/transactions?accountId=${encodeURIComponent(v.id)}&dateFrom=${ini}&dateTo=${addDias(hoje(), 45)}`);
+        const ts = r.results || [];
+        const { data: ja } = await admin.from('lancamentos').select('ext_id').eq('user_id', userId).in('ext_id', ts.map((t: any) => 'pluggy:' + t.id));
+        const setJa = new Set((ja || []).map((x: any) => x.ext_id));
+        rel.push({ conta: v.nome, tipo: v.tipo, total: ts.length,
+          itens: ts.slice(0, 15).map((t: any) => [String(t.date).slice(0, 10), t.amount, t.type, t.status, String(t.description || '').slice(0, 22), setJa.has('pluggy:' + t.id) ? 'no NC' : '-']) });
+      }
+      return json({ desde: prefs.pluggy?.desde, rel });
+    }
     const desdeCfg = prefs.pluggy?.desde || hoje();
     const desde = desdeCfg > addDias(hoje(), -120) ? desdeCfg : addDias(hoje(), -120);
     const [{ data: cartoes }, { data: regras }, { data: categorias }] = await Promise.all([
