@@ -265,3 +265,31 @@ revoke all on function public.nc_pluggy_cred() from public, anon, authenticated;
 revoke all on function public.nc_pluggy_cred_salvar(text, text) from public, anon, authenticated;
 grant execute on function public.nc_pluggy_cred() to service_role;
 grant execute on function public.nc_pluggy_cred_salvar(text, text) to service_role;
+
+-- ---------- configurações privadas genéricas (Telegram) e resumo diário às 8h ----------
+create or replace function public.nc_cfg_get(k text) returns text
+language sql security definer set search_path = public as $$ select valor from privado.config where chave = k $$;
+create or replace function public.nc_cfg_set(k text, v text) returns void
+language sql security definer set search_path = public as $$
+  insert into privado.config values (k, v) on conflict (chave) do update set valor = excluded.valor $$;
+revoke all on function public.nc_cfg_get(text) from public, anon, authenticated;
+revoke all on function public.nc_cfg_set(text, text) from public, anon, authenticated;
+grant execute on function public.nc_cfg_get(text) to service_role;
+grant execute on function public.nc_cfg_set(text, text) to service_role;
+
+create or replace function public.nc_disparar(acao text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform net.http_post(
+    url     := 'https://cuhrhtkwfuwgsvsdrkng.supabase.co/functions/v1/pluggy-sync',
+    headers := jsonb_build_object('Content-Type','application/json',
+                 'x-nc-cron', (select valor from privado.config where chave = 'cron')),
+    body    := jsonb_build_object('acao', acao),
+    timeout_milliseconds := 120000);
+end $$;
+revoke all on function public.nc_disparar(text) from public, anon, authenticated;
+-- 7h50 sincroniza, 8h00 envia o resumo (horário de Brasília = UTC-3)
+select cron.unschedule('nosso-caixa-presync') where exists (select 1 from cron.job where jobname = 'nosso-caixa-presync');
+select cron.unschedule('nosso-caixa-resumo')  where exists (select 1 from cron.job where jobname = 'nosso-caixa-resumo');
+select cron.schedule('nosso-caixa-presync', '50 10 * * *', 'select public.nc_disparar(''sincronizar'')');
+select cron.schedule('nosso-caixa-resumo',  '0 11 * * *',  'select public.nc_disparar(''relatorio'')');

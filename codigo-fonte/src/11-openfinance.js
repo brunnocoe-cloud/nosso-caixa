@@ -2,7 +2,7 @@
    OPEN FINANCE (Pluggy / Meu Pluggy) — lançamentos automáticos
    A chave secreta da Pluggy fica só no servidor (função pluggy-sync + cofre privado).
    ===================================================================== */
-const OF = { contas: null, execs: null, carregando: false, faltaSQL: false, erro: '', cred: null };
+const OF = { contas: null, execs: null, carregando: false, faltaSQL: false, erro: '', cred: null, tg: null };
 const fmtDH = s => { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
 
 async function ofCarregar() {
@@ -15,6 +15,7 @@ async function ofCarregar() {
     if (a.error || b.error) { const e = a.error || b.error; if (tabelaFaltando(e)) { OF.faltaSQL = true; OF.contas = []; OF.execs = []; } else throw e; }
     else { OF.faltaSQL = false; OF.contas = a.data; OF.execs = b.data; }
     if (!OF.faltaSQL) { try { OF.cred = (await ofChamar({ acao: 'status' })).credenciais; } catch (e) { OF.cred = false; } }
+    try { OF.tg = await ofChamar({ acao: 'telegram_status' }); } catch (e) { OF.tg = { token: false, erro: e.message }; }
   } catch (e) { OF.erro = traduzErro(e); OF.contas = OF.contas || []; OF.execs = OF.execs || []; }
   OF.carregando = false;
   if (S.view === 'openfinance') render();
@@ -93,6 +94,22 @@ function vOpenFinance() {
       ${OF.contas.map(pc => `<tr><td class="l">${esc(pc.nome || '')}${pc.numero ? ` <span class="muted">· ${esc(pc.numero)}</span>` : ''}</td><td class="l">${pc.tipo === 'CREDIT' ? 'Cartão' : 'Conta'}</td><td class="l">${destinoSel(pc)}</td><td>${fmtDH(pc.atualizado_em)}</td></tr>`).join('')}</table></div>`
       : '<p class="muted" style="padding-top:12px">Aparece aqui depois de conectar o banco. O vínculo é sugerido pelo nome e pode ser trocado.</p>'}</div></div>
 
+  <div class="card">${cardH('Resumo diário no Telegram (8h)')}
+    <div class="card-b" style="padding-top:12px;font-size:14px">
+      <p style="margin-top:0">Todo dia às <b>8h</b> chega no Telegram: saldo do banco, gasto no cartão, valor das faturas, Pix enviados e recebidos e quanto do orçamento já foi usado. Gratuito.</p>
+      ${OF.tg?.token ? `<p>${ic('taskok')} Bot <b>@${esc(OF.tg.bot || '?')}</b> configurado · ${OF.tg.conversas ? `<b>${OF.tg.conversas}</b> pessoa(s) recebendo` : '<span style="color:var(--late)">ninguém vinculado ainda</span>'}</p>
+        <ol style="padding-left:20px;line-height:1.6;margin:0 0 10px">
+          <li>Abra <a href="https://t.me/${esc(OF.tg.bot || '')}" target="_blank" rel="noopener"><b>t.me/${esc(OF.tg.bot || '')}</b></a> no celular e toque em <b>Iniciar</b>. A Rúbia pode fazer o mesmo para receber também.</li>
+          <li>Volte aqui e clique em <b>Vincular</b>.</li></ol>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" data-act="tgVincular">Vincular</button><button class="btn pri" data-act="tgTeste" ${OF.tg.conversas ? '' : 'disabled'}>Enviar resumo agora</button><button class="btn out sm" data-act="tgPrevia">Ver prévia</button><button class="btn out sm" data-act="tgTrocar">Trocar bot</button></div>`
+      : `<ol style="padding-left:20px;line-height:1.6;margin:0 0 10px">
+          <li>No Telegram, abra <a href="https://t.me/BotFather" target="_blank" rel="noopener"><b>@BotFather</b></a>, envie <code>/newbot</code>, escolha um nome (ex.: Nosso Caixa) e um usuário terminado em <i>bot</i>.</li>
+          <li>Copie o <b>token</b> que ele devolve e cole abaixo.</li></ol>
+        <div class="f"><label for="tgToken">Token do bot</label><input id="tgToken" type="password" autocomplete="off" spellcheck="false" placeholder="123456789:ABC..."></div>
+        <button class="btn pri" data-act="tgSalvar">Salvar token</button>`}
+      <div id="tgPrev"></div>
+    </div></div>
+
   <div class="card">${cardH('Histórico de sincronizações')}
     <div class="card-b ${OF.execs.length ? 'flush' : ''}">${OF.execs.length ? `<div style="overflow-x:auto"><table class="t"><tr><th class="l">Quando</th><th class="l">Origem</th><th>Novos</th><th>Conciliados</th><th class="l">Situação</th></tr>
       ${OF.execs.map(x => `<tr><td class="l">${fmtDH(x.fim || x.inicio)}</td><td class="l">${x.origem === 'agendado' ? 'Automática' : 'Manual'}</td><td>${x.novos ?? 0}</td><td>${x.conciliados ?? 0}</td><td class="l">${x.erro ? `<span style="color:var(--late)">${esc(x.erro)}</span>` : 'OK'}</td></tr>`).join('')}</table></div>`
@@ -112,6 +129,28 @@ function ofCarregarWidget() {
 }
 
 Object.assign(ACOES, {
+  tgSalvar: async (d, el) => {
+    const token = $('#tgToken').value.trim(); if (!token) return toast('Cole o token do BotFather.', true);
+    el.disabled = true;
+    try { const r = await ofChamar({ acao: 'telegram_salvar', token }); toast(`Bot @${r.bot} configurado`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    OF.contas = null; render();
+  },
+  tgTrocar: () => { OF.tg = { token: false }; render(); },
+  tgVincular: async (d, el) => {
+    el.disabled = true;
+    try { const r = await ofChamar({ acao: 'telegram_vincular' }); toast(`${r.conversas} pessoa(s) vinculada(s). Confira a mensagem no Telegram.`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    OF.contas = null; render();
+  },
+  tgTeste: async (d, el) => {
+    el.disabled = true; el.textContent = 'Enviando…';
+    try { const r = await ofChamar({ acao: 'relatorio' }); toast(`Resumo enviado para ${r.enviados} pessoa(s)`); } catch (e) { toast(e.message, true); }
+    el.disabled = false; el.textContent = 'Enviar resumo agora';
+  },
+  tgPrevia: async () => {
+    $('#tgPrev').innerHTML = '<p class="muted">Montando…</p>';
+    try { const r = await ofChamar({ acao: 'relatorio', previa: true }); $('#tgPrev').innerHTML = `<div style="white-space:pre-wrap;background:var(--bg);border-radius:8px;padding:12px;margin-top:12px;font-size:13px">${r.texto.replace(/<a [^>]*>([^<]*)<\/a>/g, '$1')}</div>`; }
+    catch (e) { $('#tgPrev').innerHTML = `<div class="err-msg">${esc(e.message)}</div>`; }
+  },
   ofCopiarSQL: async () => { await navigator.clipboard.writeText($('#sqlOF').textContent.trim()); toast('SQL copiado. Cole no SQL Editor e clique em Run.'); },
   ofSalvarChave: async (d, el) => {
     const clientId = $('#ofCid').value.trim(), clientSecret = $('#ofSec').value.trim();

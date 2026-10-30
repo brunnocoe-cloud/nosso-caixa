@@ -47,6 +47,143 @@ const CAT_PLUGGY: [RegExp, string][] = [
   [/rent|housing|condominium|home/i, 'Moradia'], [/salary|wage|payroll/i, 'Salário'], [/investment income|interest|yield|dividend/i, 'Rendimentos'],
 ];
 
+// ===================== RELATÓRIO DIÁRIO (Telegram) =====================
+const brl = (v: number) => (v < 0 ? '-' : '') + 'R$ ' + Math.abs(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const escH = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const dataBR = (ds: string) => `${ds.slice(8, 10)}/${ds.slice(5, 7)}`;
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+async function tudo(admin: any, tabela: string, cols: string, userId: string) {
+  const out: any[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin.from(tabela).select(cols).eq('user_id', userId).order('id').range(from, from + 999);
+    if (error) throw error;
+    out.push(...data); if (data.length < 1000) break;
+  }
+  return out;
+}
+async function tg(token: string, metodo: string, corpo: any) {
+  const r = await fetch(`https://api.telegram.org/bot${token}/${metodo}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error('Telegram: ' + (j.description || r.status));
+  return j.result;
+}
+async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: string) => Promise<any>, vinculos: any[]) {
+  const h = hoje(), ontem = addDias(h, -1), ym = h.slice(0, 7), iniMes = ym + '-01';
+  const [contas, cartoes, cats, orcs, lancs] = await Promise.all([
+    tudo(admin, 'contas', 'id,nome,arquivada,considerar_saldo,saldo_inicial', userId),
+    tudo(admin, 'cartoes', 'id,nome,arquivado,limite,dia_fechamento,dia_vencimento,faturas_fechadas', userId),
+    tudo(admin, 'categorias', 'id,nome,parent_id', userId),
+    tudo(admin, 'orcamentos', 'id,categoria_id,mes,valor', userId),
+    tudo(admin, 'lancamentos', 'id,tipo,valor,data,pago,conta_id,conta_destino_id,cartao_id,fatura_mes,categoria_id,serie', userId),
+  ]);
+  const num = (v: any) => Number(v) || 0;
+  const L: string[] = [];
+  L.push(`<b>☀️ Nosso Caixa · ${dataBR(h)}</b>`);
+
+  // ---- saldo do banco ----
+  L.push('', '<b>🏦 Saldo</b>');
+  const efeito = (l: any, cid: string) => {
+    const v = num(l.valor);
+    if (l.cartao_id && l.tipo !== 'pagamento_fatura') return 0;
+    if ((l.tipo === 'receita') && l.conta_id === cid) return v;
+    if ((l.tipo === 'despesa' || l.tipo === 'pagamento_fatura') && l.conta_id === cid) return -v;
+    if (l.tipo === 'transferencia') { if (l.conta_id === cid) return -v; if (l.conta_destino_id === cid) return v; }
+    return 0;
+  };
+  const saldosBanco: Record<string, number> = {};
+  for (const v of vinculos.filter(x => x.conta_id)) {
+    try { const a = await P('/accounts/' + v.id); if (a?.type === 'BANK' && typeof a.balance === 'number') saldosBanco[v.conta_id] = (saldosBanco[v.conta_id] || 0) + a.balance; } catch { /* sem saldo */ }
+  }
+  let totalNC = 0;
+  for (const c of contas.filter((c: any) => !c.arquivada && c.considerar_saldo !== false)) {
+    let sc = num(c.saldo_inicial), prev = sc;
+    for (const l of lancs) { if (l.data > h) { if (l.data.slice(0, 7) === ym) prev += efeito(l, c.id); continue; } const e = efeito(l, c.id); if (l.pago) sc += e; prev += e; }
+    sc = r2(sc); prev = r2(prev); totalNC += sc;
+    if (Math.abs(sc) < 0.005 && !(c.id in saldosBanco)) continue;
+    const banco = saldosBanco[c.id];
+    L.push(`• ${escH(c.nome)}: <b>${brl(banco ?? sc)}</b>` + (banco !== undefined && Math.abs(banco - sc) >= 1 ? ` <i>(no Nosso Caixa: ${brl(sc)})</i>` : ''));
+    if (Math.abs(prev - sc) >= 1) L.push(`   previsto p/ fim do mês: ${brl(prev)}`);
+  }
+
+  // ---- Pix (direto do banco) ----
+  const contaBanco = vinculos.filter(x => x.conta_id);
+  let pixE = { n: 0, v: 0 }, pixR = { n: 0, v: 0 }, pixEm = 0, pixRm = 0;
+  for (const v of contaBanco) {
+    try {
+      const r = await P(`/v2/transactions?accountId=${encodeURIComponent(v.id)}&dateFrom=${iniMes < ontem ? iniMes : ontem}&dateTo=${h}`);
+      for (const t of r.results || []) {
+        if (!/pix/i.test(String(t.description || '') + ' ' + String(t.descriptionRaw || '') + ' ' + String(t.paymentData?.paymentMethod || ''))) continue;
+        const d = String(t.date).slice(0, 10), val = Math.abs(num(t.amount)), ent = t.type ? t.type === 'CREDIT' : t.amount > 0;
+        if (d.slice(0, 7) === ym) { if (ent) pixRm += val; else pixEm += val; }
+        if (d === ontem) { if (ent) { pixR.n++; pixR.v += val; } else { pixE.n++; pixE.v += val; } }
+      }
+    } catch { /* sem pix */ }
+  }
+  L.push('', `<b>⚡ Pix de ontem (${dataBR(ontem)})</b>`,
+    `• Enviados: ${pixE.n} · <b>${brl(pixE.v)}</b>`, `• Recebidos: ${pixR.n} · <b>${brl(pixR.v)}</b>`,
+    `<i>No mês: enviados ${brl(pixEm)} · recebidos ${brl(pixRm)}</i>`);
+
+  // ---- cartões ----
+  const base = prefs.faturas_base || '';
+  const fatMes = (l: any) => String(l.fatura_mes || '').slice(0, 7);
+  const cache = new Map<string, number>();
+  const aPagar = (c: any, fym: string): number => {
+    const k = c.id + fym; if (cache.has(k)) return cache.get(k)!;
+    const doC = lancs.filter((l: any) => l.cartao_id === c.id);
+    const tot = doC.filter((l: any) => fatMes(l) === fym && (l.tipo === 'despesa' || l.tipo === 'receita')).reduce((s: number, l: any) => s + (l.tipo === 'despesa' ? 1 : -1) * num(l.valor), 0);
+    const pago = doC.filter((l: any) => l.tipo === 'pagamento_fatura' && l.pago && fatMes(l) === fym).reduce((s: number, l: any) => s + num(l.valor), 0);
+    const meses = [...new Set(doC.map(fatMes).filter(Boolean))].sort();
+    const prev = addMeses(fym, -1);
+    const ant = meses.length && meses[0] < fym && prev >= meses[0] && prev > base ? aPagar(c, prev) : 0;
+    const v = r2(Math.max(0, ant + tot - pago)); cache.set(k, v); return v;
+  };
+  L.push('', '<b>💳 Cartões</b>');
+  let gastoOntemTot = 0, gastoMesTot = 0;
+  for (const c of cartoes.filter((c: any) => !c.arquivado)) {
+    const doC = lancs.filter((l: any) => l.cartao_id === c.id && (l.tipo === 'despesa' || l.tipo === 'receita'));
+    const sinal = (l: any) => (l.tipo === 'despesa' ? 1 : -1) * num(l.valor);
+    const gOntem = r2(doC.filter((l: any) => l.data === ontem).reduce((s: number, l: any) => s + sinal(l), 0));
+    const gMes = r2(doC.filter((l: any) => l.data.slice(0, 7) === ym && l.data <= h).reduce((s: number, l: any) => s + sinal(l), 0));
+    const fym = faturaYM(c, h);
+    const fat = aPagar(c, fym);
+    const venc = `${fym}-${p2(Math.min(c.dia_vencimento, diasNoMes(+fym.slice(0, 4), +fym.slice(5, 7))))}`;
+    // fatura anterior ainda em aberto (fechada e não paga)
+    const fAnt = addMeses(fym, -1), vAnt = aPagar(c, fAnt);
+    if (!gMes && !fat && !vAnt) continue;
+    gastoOntemTot += gOntem; gastoMesTot += gMes;
+    L.push(`<b>${escH(c.nome)}</b>`, `• Gasto ontem: ${brl(gOntem)} · no mês: ${brl(gMes)}`, `• Fatura ${MESES[+fym.slice(5, 7) - 1]} (vence ${dataBR(venc)}): <b>${brl(fat)}</b>`);
+    if (vAnt > 0.004 && fAnt > base) L.push(`• ⚠️ Fatura de ${MESES[+fAnt.slice(5, 7) - 1]} ainda a pagar: <b>${brl(vAnt)}</b>`);
+  }
+  L.push(`<i>Total no cartão: ontem ${brl(gastoOntemTot)} · no mês ${brl(gastoMesTot)}</i>`);
+
+  // ---- orçamento ----
+  const catById = new Map(cats.map((c: any) => [c.id, c]));
+  const raiz = (id: string) => { const c: any = catById.get(id); return c?.parent_id ? (catById.get(c.parent_id) as any) || c : c; };
+  const metas = new Map<string, number>();
+  for (const o of orcs.filter((o: any) => String(o.mes).slice(0, 7) === ym)) { const k = raiz(o.categoria_id)?.id || o.categoria_id; metas.set(k, (metas.get(k) || 0) + num(o.valor)); }
+  L.push('', `<b>🎯 Orçamento de ${MESES[+ym.slice(5, 7) - 1]}</b>`);
+  if (!metas.size) L.push('<i>Nenhuma meta definida para este mês (Metas → Orçamento).</i>');
+  else {
+    const real = new Map<string, number>();
+    for (const l of lancs) {
+      if (l.data.slice(0, 7) !== ym || l.data > h) continue;
+      const desp = l.tipo === 'despesa', estCartao = l.tipo === 'receita' && l.cartao_id;
+      if (!desp && !estCartao) continue;
+      const k = raiz(l.categoria_id)?.id || '_';
+      real.set(k, (real.get(k) || 0) + (desp ? 1 : -1) * num(l.valor));
+    }
+    let tM = 0, tR = 0; const linhas: any[] = [];
+    for (const [k, m] of metas) { const r = r2(real.get(k) || 0); tM += m; tR += r; linhas.push({ nome: (catById.get(k) as any)?.nome || '?', m, r, p: m ? r / m : 0 }); }
+    const dia = +h.slice(8, 10), dm = diasNoMes(+ym.slice(0, 4), +ym.slice(5, 7));
+    const pct = tM ? Math.round(tR / tM * 100) : 0, pctMes = Math.round(dia / dm * 100);
+    L.push(`• Usado: <b>${pct}%</b> (${brl(tR)} de ${brl(tM)})`, `• Mês decorrido: ${pctMes}% ${pct > pctMes + 5 ? '— acima do ritmo ⚠️' : pct < pctMes - 5 ? '— abaixo do ritmo ✅' : '— no ritmo'}`);
+    const alertas = linhas.filter(x => x.p >= 0.8).sort((a, b) => b.p - a.p).slice(0, 4);
+    if (alertas.length) L.push('<i>Atenção:</i> ' + alertas.map(x => `${escH(x.nome)} ${Math.round(x.p * 100)}%`).join(' · '));
+  }
+  L.push('', '<a href="https://brunnocoe-cloud.github.io/nosso-caixa/">Abrir o Nosso Caixa</a>');
+  return L.join('\n');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const SUPA_URL = Deno.env.get('SUPABASE_URL')!;
@@ -70,6 +207,38 @@ Deno.serve(async (req) => {
     userId = data?.user?.id ?? null;
   }
   if (!userId) return json({ erro: 'Faça login no Nosso Caixa.' }, 401);
+
+  // ---------- Telegram (token e conversas ficam no cofre privado) ----------
+  const cfg = async (k: string) => { const { data } = await admin.rpc('nc_cfg_get', { k }); return (data as string) || ''; };
+  const setCfg = async (k: string, v: string) => { const { error } = await admin.rpc('nc_cfg_set', { k, v }); if (error) throw error; };
+  try {
+    if (body.acao === 'telegram_status') {
+      const token = await cfg('telegram_token'), chats = await cfg('telegram_chats');
+      let bot = '';
+      if (token) { try { bot = (await tg(token, 'getMe', {})).username; } catch { /* token inválido */ } }
+      return json({ token: Boolean(token), bot, conversas: chats ? chats.split(',').filter(Boolean).length : 0 });
+    }
+    if (body.acao === 'telegram_salvar') {
+      const token = String(body.token || '').trim();
+      if (!/^\d+:[\w-]{30,}$/.test(token)) return json({ erro: 'Esse não parece um token do BotFather (formato 123456789:ABC...).' }, 400);
+      const me = await tg(token, 'getMe', {});
+      await setCfg('telegram_token', token);
+      return json({ ok: true, bot: me.username });
+    }
+    if (body.acao === 'telegram_vincular') {
+      const token = await cfg('telegram_token');
+      if (!token) return json({ erro: 'Cadastre primeiro o token do bot.' }, 400);
+      const ups = await tg(token, 'getUpdates', { limit: 100 });
+      const ids = new Set((await cfg('telegram_chats')).split(',').filter(Boolean));
+      const novos: string[] = [];
+      for (const u of ups) { const ch = u.message?.chat; if (ch?.type === 'private' && !ids.has(String(ch.id))) { ids.add(String(ch.id)); novos.push(ch.first_name || String(ch.id)); } }
+      if (!ids.size) return json({ erro: 'O bot ainda não recebeu nenhuma mensagem. Abra o bot no Telegram, toque em Iniciar (/start) e tente de novo.' }, 400);
+      await setCfg('telegram_chats', [...ids].join(','));
+      for (const id of ids) await tg(token, 'sendMessage', { chat_id: id, text: '✅ Nosso Caixa vinculado. O resumo financeiro chega aqui todos os dias às 8h.' }).catch(() => {});
+      return json({ ok: true, conversas: ids.size, novos });
+    }
+    if (body.acao === 'telegram_desvincular') { await setCfg('telegram_chats', ''); return json({ ok: true }); }
+  } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
 
   // ---------- credenciais da Pluggy (segredo do Supabase ou cofre privado do banco) ----------
   let ultimoErroAuth = '';
@@ -149,6 +318,14 @@ Deno.serve(async (req) => {
     // ---------- sincronizar ----------
     const { data: vinculos } = await admin.from('pluggy_contas').select('*').eq('user_id', userId).eq('ativo', true);
     const ativos = (vinculos || []).filter((v: any) => v.conta_id || v.cartao_id);
+    if (body.acao === 'relatorio') {
+      const texto = await montarRelatorio(admin, userId, prefs, P, ativos);
+      if (body.previa) return json({ texto });
+      const token = await cfg('telegram_token'), chats = (await cfg('telegram_chats')).split(',').filter(Boolean);
+      if (!token || !chats.length) return json({ erro: 'Telegram ainda não configurado (token e /start no bot).', texto }, 400);
+      for (const id of chats) await tg(token, 'sendMessage', { chat_id: id, text: texto, parse_mode: 'HTML', disable_web_page_preview: true });
+      return json({ ok: true, enviados: chats.length });
+    }
     if (!ativos.length) return json({ erro: 'Nenhuma conta da Pluggy vinculada. Em Configurações → Open Finance, clique em "Buscar contas" e escolha o destino de cada uma.' }, 400);
 
     if (body.acao === 'diagnostico') {
