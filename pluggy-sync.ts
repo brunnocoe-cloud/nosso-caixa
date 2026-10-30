@@ -160,7 +160,8 @@ Deno.serve(async (req) => {
         const { data: ja } = await admin.from('lancamentos').select('ext_id').eq('user_id', userId).in('ext_id', ts.map((t: any) => 'pluggy:' + t.id));
         const setJa = new Set((ja || []).map((x: any) => x.ext_id));
         rel.push({ conta: v.nome, tipo: v.tipo, total: ts.length,
-          itens: ts.slice(0, 15).map((t: any) => [String(t.date).slice(0, 10), t.amount, t.type, t.status, String(t.description || '').slice(0, 22), setJa.has('pluggy:' + t.id) ? 'no NC' : '-']) });
+          finais: Object.entries(ts.reduce((m: any, t: any) => { const k = t.creditCardMetadata?.cardNumber || '-'; m[k] = (m[k] || 0) + 1; return m; }, {})),
+          itens: ts.slice(0, 15).map((t: any) => [String(t.date).slice(0, 10), t.amount, t.type, t.status, String(t.description || '').slice(0, 22), setJa.has('pluggy:' + t.id) ? 'no NC' : '-', t.creditCardMetadata?.cardNumber || '']) });
       }
       return json({ desde: prefs.pluggy?.desde, rel });
     }
