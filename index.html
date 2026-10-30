@@ -3581,6 +3581,8 @@ function vOpenFinance() {
           <li>Copie o <b>token</b> que ele devolve e cole abaixo.</li></ol>
         <div class="f"><label for="tgToken">Token do bot</label><input id="tgToken" type="password" autocomplete="off" spellcheck="false" placeholder="123456789:ABC..."></div>
         <button class="btn pri" data-act="tgSalvar">Salvar token</button>`}
+      <div class="f" style="max-width:320px;margin-top:14px"><label for="alertaSaldo">Alertar quando o saldo da conta ficar abaixo de (R$)</label><input id="alertaSaldo" type="number" step="100" placeholder="deixe vazio para não alertar" value="${esc(S.prefs.alerta_saldo ?? '')}"></div>
+      <p class="muted" style="font-size:12px;margin-top:-4px">O alerta aparece em destaque no topo do resumo, inclusive quando a previsão do fim do mês fica abaixo desse valor.</p>
       <div id="tgPrev"></div>
     </div></div>
 
@@ -3689,6 +3691,7 @@ Object.assign(ACOES, {
 });
 
 document.addEventListener('change', async e => {
+  if (e.target.id === 'alertaSaldo') { const v = e.target.value.trim(); S.prefs.alerta_saldo = v === '' ? null : Number(v); return salvarPrefs(v === '' ? 'Alerta de saldo desligado' : 'Alerta de saldo salvo'); }
   if (e.target.id === 'ofDesde') { S.prefs.pluggy = { ...(S.prefs.pluggy || {}), desde: e.target.value || hoje() }; return salvarPrefs('Data salva'); }
   const id = e.target.dataset?.ofDestino;
   if (id === undefined) return;

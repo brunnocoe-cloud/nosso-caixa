@@ -96,6 +96,7 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
     try { const a = await P('/accounts/' + v.id); if (a?.type === 'BANK' && typeof a.balance === 'number') saldosBanco[v.conta_id] = (saldosBanco[v.conta_id] || 0) + a.balance; } catch { /* sem saldo */ }
   }
   let totalNC = 0;
+  const alertasSaldo: string[] = [];
   for (const c of contas.filter((c: any) => !c.arquivada && c.considerar_saldo !== false)) {
     let sc = num(c.saldo_inicial), prev = sc;
     for (const l of lancs) { if (l.data > h) { if (l.data.slice(0, 7) === ym) prev += efeito(l, c.id); continue; } const e = efeito(l, c.id); if (l.pago) sc += e; prev += e; }
@@ -104,7 +105,11 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
     const banco = saldosBanco[c.id];
     L.push(`• ${escH(c.nome)}: <b>${brl(banco ?? sc)}</b>` + (banco !== undefined && Math.abs(banco - sc) >= 1 ? ` <i>(no Nosso Caixa: ${brl(sc)})</i>` : ''));
     if (Math.abs(prev - sc) >= 1) L.push(`   previsto p/ fim do mês: ${brl(prev)}`);
+    const limite = prefs.alerta_saldo;
+    if (limite !== undefined && limite !== null && limite !== '' && (banco ?? sc) < Number(limite)) alertasSaldo.push(`${escH(c.nome)} está em ${brl(banco ?? sc)}, abaixo do alerta de ${brl(Number(limite))}`);
+    if (limite !== undefined && limite !== null && limite !== '' && prev < Number(limite) && (banco ?? sc) >= Number(limite)) alertasSaldo.push(`${escH(c.nome)} deve ficar em ${brl(prev)} até o fim do mês, abaixo do alerta de ${brl(Number(limite))}`);
   }
+  if (alertasSaldo.length) L.splice(1, 0, '', ...alertasSaldo.map(a => `🚨 <b>${a}</b>`));
 
   // ---- contas pagas e valores recebidos (lançamentos confirmados nas contas) ----
   const idsContas = new Set(contas.map((c: any) => c.id));
@@ -182,6 +187,29 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
     if (vAnt > 0.004 && fAnt > base) L.push(`• ⚠️ Fatura de ${MESES[+fAnt.slice(5, 7) - 1]} ainda a pagar: <b>${brl(vAnt)}</b>`);
   }
   L.push(`<i>Total no cartão: ontem ${brl(gastoOntemTot)} · no mês ${brl(gastoMesTot)}</i>`);
+
+  // ---- a vencer nos próximos 7 dias e atrasados (não confirmados) ----
+  const ate = addDias(h, 7);
+  const ehConta = (l: any) => !l.pago && (!l.cartao_id) && idsContas.has(l.conta_id) && (l.tipo === 'despesa' || l.tipo === 'receita');
+  const linha = (l: any) => `   ${dataBR(l.data)} · ${desc(l)} · ${brl(num(l.valor))}`;
+  const atrasadas = lancs.filter((l: any) => ehConta(l) && l.tipo === 'despesa' && l.data < h).sort((a: any, b: any) => a.data < b.data ? -1 : 1);
+  const aPagarProx = lancs.filter((l: any) => ehConta(l) && l.tipo === 'despesa' && l.data >= h && l.data <= ate).sort((a: any, b: any) => a.data < b.data ? -1 : 1);
+  const aReceberProx = lancs.filter((l: any) => ehConta(l) && l.tipo === 'receita' && l.data >= h && l.data <= ate).sort((a: any, b: any) => a.data < b.data ? -1 : 1);
+  const faturasProx: string[] = [];
+  for (const c of cartoes.filter((c: any) => !c.arquivado)) {
+    for (const fym of [addMeses(faturaYM(c, h), -1), faturaYM(c, h)]) {
+      const venc = `${fym}-${p2(Math.min(c.dia_vencimento, diasNoMes(+fym.slice(0, 4), +fym.slice(5, 7))))}`;
+      const v = aPagar(c, fym);
+      if (v > 0.004 && venc <= ate && fym > base) faturasProx.push(`   ${dataBR(venc)} · Fatura ${escH(c.nome)}${venc < h ? ' ⚠️ vencida' : ''} · ${brl(v)}`);
+    }
+  }
+  L.push('', '<b>📅 Próximos 7 dias</b>');
+  if (atrasadas.length) L.push(`⚠️ <b>Em atraso: ${atrasadas.length} · ${brl(soma2(atrasadas))}</b>`, ...atrasadas.slice(0, 5).map(linha), ...(atrasadas.length > 5 ? [`   <i>+ ${atrasadas.length - 5} outra(s)</i>`] : []));
+  const tPagar = soma2(aPagarProx) + faturasProx.length; // só para saber se há algo
+  if (aPagarProx.length || faturasProx.length) {
+    L.push(`• A pagar: <b>${brl(soma2(aPagarProx))}</b>${faturasProx.length ? ' + faturas' : ''}`, ...faturasProx, ...aPagarProx.slice(0, 8).map(linha), ...(aPagarProx.length > 8 ? [`   <i>+ ${aPagarProx.length - 8} outra(s)</i>`] : []));
+  } else if (!tPagar) L.push('• Nada a pagar.');
+  if (aReceberProx.length) L.push(`• A receber: <b>${brl(soma2(aReceberProx))}</b>`, ...aReceberProx.slice(0, 5).map(linha));
 
   // ---- orçamento ----
   const catById = new Map(cats.map((c: any) => [c.id, c]));
