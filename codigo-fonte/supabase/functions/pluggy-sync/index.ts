@@ -208,12 +208,16 @@ Deno.serve(async (req) => {
       return { cat: null, regra: r };
     };
     const usados = new Set<string>();
-    const novos: any[] = [], atualizar: [string, any][] = [];
+    const novos: any[] = [], atualizar: [string, any][] = [], remover: string[] = [];
+    const EM_ABERTO = 'Open Finance (em aberto)';
+    const porExt = new Map(existentes.filter(l => l.ext_id).map(l => [l.ext_id, l]));
 
     for (const v of ativos) {
       const txs: any[] = [];
       // v2 com cursor (o /transactions paginado foi desativado pela Pluggy)
-      let caminho = `/v2/transactions?accountId=${encodeURIComponent(v.id)}&dateFrom=${desde}&dateTo=${addDias(hoje(), 45)}`;
+      // cartão: a Pluggy recusa janelas acima de ~90 dias (medido no Fôlego); usa no máximo 85
+      const iniConta = v.cartao_id && desde < addDias(hoje(), -85) ? addDias(hoje(), -85) : desde;
+      let caminho = `/v2/transactions?accountId=${encodeURIComponent(v.id)}&dateFrom=${iniConta}&dateTo=${addDias(hoje(), 45)}`;
       for (let pag = 0; pag < 40; pag++) {
         const r = await P(caminho);
         txs.push(...(r.results || []));
@@ -226,17 +230,26 @@ Deno.serve(async (req) => {
       const cartao = v.cartao_id ? (cartoes || []).find((c: any) => c.id === v.cartao_id) : null;
       const cartoesDaConta = (cartoes || []).filter((c: any) => !c.arquivado && c.conta_id === v.conta_id);
 
+      const idsAgora = new Set(txs.map((t: any) => 'pluggy:' + t.id));
       for (const t of txs) {
         const ext = 'pluggy:' + t.id;
-        if (comExt.has(ext)) { exec.ignorados++; continue; }
+        if (comExt.has(ext)) {
+          // compra de cartão que estava em aberto e agora foi confirmada: só atualiza
+          const ja = porExt.get(ext);
+          if (ja && ja.observacao === EM_ABERTO && t.status !== 'PENDING') { atualizar.push([ja.id, { observacao: 'Open Finance' }]); exec.conciliados++; }
+          else exec.ignorados++;
+          continue;
+        }
         const data = String(t.date).slice(0, 10);
         if (data < desde) continue;
         const valor = r2(Math.abs(t.amount));
         if (!valor) continue;
         const entrada = t.type ? t.type === 'CREDIT' : t.amount > 0;
         const desc = String(t.description || t.descriptionRaw || 'Lançamento').replace(/\s+/g, ' ').trim().slice(0, 120);
-        if (t.status === 'PENDING') { exec.ignorados++; continue; } // só entra depois de confirmado pelo banco
-        const pendente = false;
+        // conta: só entra confirmado. Cartão: a compra fica PENDING até a fatura fechar,
+        // então entra já (marcada "em aberto") para a fatura atual ficar correta.
+        if (t.status === 'PENDING' && !cartao) { exec.ignorados++; continue; }
+        const pendente = t.status === 'PENDING';
         let linha: any = { user_id: userId, descricao: desc, valor, data, pago: true, conciliado: false, ext_id: ext, observacao: pendente ? 'Open Finance (em aberto)' : 'Open Finance', tags: [] };
 
         if (cartao) {
@@ -251,7 +264,15 @@ Deno.serve(async (req) => {
           // conciliação: mesmo cartão, mesmo valor, mesma fatura ou data próxima (ex.: parcelas e fixas já trazidas do Meu Dinheiro)
           const par = existentes.find(l => !usados.has(l.id) && l.cartao_id === cartao.id && l.tipo === linha.tipo && Math.abs(Number(l.valor) - valor) < 0.005
             && !String(l.ext_id || '').startsWith('pluggy:') && ((l.fatura_mes || '').slice(0, 7) === fy || Math.abs(difDias(l.data, data)) <= 4));
-          if (par) { usados.add(par.id); atualizar.push([par.id, { ext_id: ext, observacao: linha.observacao, fatura_mes: linha.fatura_mes }]); exec.conciliados++; continue; }
+          // já previsto (parcela/fixa do Meu Dinheiro): só vincula quando a Pluggy confirmar; enquanto em aberto, não duplica
+          if (par && pendente) { usados.add(par.id); exec.ignorados++; continue; }
+          if (par) { usados.add(par.id); atualizar.push([par.id, { ext_id: ext, observacao: 'Open Finance', fatura_mes: linha.fatura_mes }]); exec.conciliados++; continue; }
+          // a mesma compra que entrou "em aberto" com outro id da Pluggy: troca o id em vez de duplicar
+          if (!pendente) {
+            const aberto = existentes.find(l => !usados.has(l.id) && l.cartao_id === cartao.id && l.observacao === EM_ABERTO && l.tipo === linha.tipo
+              && Math.abs(Number(l.valor) - valor) < 0.005 && Math.abs(difDias(l.data, data)) <= 5 && !idsAgora.has(l.ext_id));
+            if (aberto) { usados.add(aberto.id); atualizar.push([aberto.id, { ext_id: ext, observacao: 'Open Finance', fatura_mes: linha.fatura_mes }]); exec.conciliados++; continue; }
+          }
           novos.push(linha); comExt.add(ext); continue;
         }
 
@@ -289,6 +310,11 @@ Deno.serve(async (req) => {
         }
         novos.push(linha); comExt.add(ext);
       }
+      // compras "em aberto" que sumiram da Pluggy (canceladas ou confirmadas com outro id já tratadas acima)
+      if (cartao) for (const l of existentes) {
+        if (l.cartao_id === cartao.id && l.observacao === EM_ABERTO && String(l.ext_id || '').startsWith('pluggy:')
+          && !idsAgora.has(l.ext_id) && !usados.has(l.id) && l.data >= iniConta) remover.push(l.id);
+      }
       await admin.from('pluggy_contas').update({ atualizado_em: new Date().toISOString() }).eq('id', v.id);
     }
     if (body.simular) {
@@ -296,10 +322,11 @@ Deno.serve(async (req) => {
       return json({ simulacao: true,
         novos: novos.map(l => [l.data, l.tipo, nomeDe(l), l.valor, l.descricao.slice(0, 30), l.fatura_mes || '', l.categoria_id ? 1 : 0]),
         conciliados: atualizar.map(([id, u]) => { const l = existentes.find(x => x.id === id); return [l?.data, l?.tipo, l?.valor, String(l?.descricao || '').slice(0, 30), u.data || '', u.valor ?? '']; }),
-        ignorados: exec.ignorados });
+        ignorados: exec.ignorados, remover: remover.length });
     }
     for (let i = 0; i < novos.length; i += 400) { const { error } = await admin.from('lancamentos').insert(novos.slice(i, i + 400)); if (error) throw error; }
     for (const [id, upd] of atualizar) { const { error } = await admin.from('lancamentos').update(upd).eq('id', id).eq('user_id', userId); if (error) throw error; }
+    for (const id of remover) { const { error } = await admin.from('lancamentos').delete().eq('id', id).eq('user_id', userId); if (error) throw error; }
     exec.novos = novos.length;
   } catch (e) {
     exec.erro = String((e as Error)?.message || e).slice(0, 500);
