@@ -350,10 +350,23 @@ async function op(promessa, msgOk) {
 async function salvar(tabela, dados, id, msg) {
   if (id) await op(sb.from(tabela).update(dados).eq('id', id), msg);
   else await op(sb.from(tabela).insert(dados), msg);
+  if (tabela === 'lancamentos' || tabela === 'cartoes') agendarFaturas();
 }
 async function excluir(tabela, ids, msg) {
   ids = Array.isArray(ids) ? ids : [ids];
   for (let i = 0; i < ids.length; i += 200) await op(sb.from(tabela).delete().in('id', ids.slice(i, i + 200)), i + 200 >= ids.length ? msg : null);
+  if (tabela === 'lancamentos') agendarFaturas();
+}
+// depois de mexer em lançamentos, atualiza as previsões das faturas no extrato (no servidor)
+let _tFaturas = null;
+function agendarFaturas() {
+  clearTimeout(_tFaturas);
+  _tFaturas = setTimeout(async () => {
+    try {
+      const { data } = await sb.functions.invoke('pluggy-sync', { body: { acao: 'faturas' } });
+      if (data && (data.criadas || data.atualizadas || data.removidas)) recarregarERender(['lancamentos']);
+    } catch (e) { /* sem conexão com a função: fica para a próxima sincronização */ }
+  }, 2500);
 }
 async function inserirMuitos(tabela, linhas, msg) {
   for (let i = 0; i < linhas.length; i += 400) await op(sb.from(tabela).insert(linhas.slice(i, i + 400)), i + 400 >= linhas.length ? msg : null);

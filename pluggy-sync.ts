@@ -240,6 +240,63 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
   return L.join('\n');
 }
 
+// ===================== PREVISÃO DAS FATURAS NO EXTRATO =====================
+// Para cada cartão, cria/atualiza um "Pagamento da fatura" previsto (não pago) na conta de débito,
+// no dia do vencimento, com o valor que falta pagar daquela fatura. Quando o banco confirma o pagamento,
+// a sincronização concilia com essa previsão.
+const OBS_PREV = 'Previsão automática da fatura';
+async function atualizarPrevisoesFaturas(admin: any, userId: string, prefs: any) {
+  const base = prefs.faturas_base || '';
+  const h = hoje();
+  const cartoes = (await tudo(admin, 'cartoes', 'id,nome,arquivado,conta_id,dia_fechamento,dia_vencimento,faturas_fechadas', userId)).filter((c: any) => !c.arquivado && c.conta_id);
+  const res = { criadas: 0, atualizadas: 0, removidas: 0 };
+  for (const c of cartoes) {
+    const out: any[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await admin.from('lancamentos').select('id,tipo,valor,data,pago,fatura_mes,observacao,descricao,conta_id')
+        .eq('user_id', userId).eq('cartao_id', c.id).order('id').range(from, from + 999);
+      if (error) throw error; out.push(...data); if (data.length < 1000) break;
+    }
+    const fm = (l: any) => String(l.fatura_mes || '').slice(0, 7);
+    const meses = [...new Set(out.filter((l: any) => l.tipo === 'despesa' || l.tipo === 'receita').map(fm).filter(Boolean))].sort();
+    const atual = faturaYM(c, h);
+    const ini = addMeses(atual, -1), fimM = addMeses(atual, 12);
+    const alvo = new Set(meses.filter(m => m >= ini && m <= fimM && m > base));
+    // faturas que já têm previsão automática também são revistas (podem ter zerado)
+    for (const l of out) if (l.tipo === 'pagamento_fatura' && !l.pago && l.observacao === OBS_PREV && fm(l) >= ini) alvo.add(fm(l));
+    for (const fym of [...alvo].sort()) {
+      const venc = `${fym}-${p2(Math.min(c.dia_vencimento, diasNoMes(+fym.slice(0, 4), +fym.slice(5, 7))))}`;
+      const itens = out.filter((l: any) => fm(l) === fym && (l.tipo === 'despesa' || l.tipo === 'receita'));
+      const total = r2(itens.reduce((s: number, l: any) => s + (l.tipo === 'despesa' ? 1 : -1) * (Number(l.valor) || 0), 0));
+      const pagos = r2(out.filter((l: any) => l.tipo === 'pagamento_fatura' && l.pago && fm(l) === fym).reduce((s: number, l: any) => s + (Number(l.valor) || 0), 0));
+      const falta = r2(Math.max(0, total - pagos));
+      const previstas = out.filter((l: any) => l.tipo === 'pagamento_fatura' && !l.pago && fm(l) === fym);
+      const auto = previstas.find((l: any) => l.observacao === OBS_PREV);
+      const manual = previstas.filter((l: any) => l.observacao !== OBS_PREV);
+      const vencida = venc < h;
+      if (falta < 0.005) {
+        for (const l of previstas.filter((l: any) => l.observacao === OBS_PREV)) { await admin.from('lancamentos').delete().eq('id', l.id).eq('user_id', userId); res.removidas++; }
+        continue;
+      }
+      if (vencida && !auto && !manual.length) continue; // fatura antiga sem previsão: não recria
+      if (manual.length && !auto) {
+        // previsão que veio do Meu Dinheiro / lançada à mão: só ajusta o valor
+        const m0 = manual[0];
+        if (Math.abs(Number(m0.valor) - falta) >= 0.005) { await admin.from('lancamentos').update({ valor: falta }).eq('id', m0.id).eq('user_id', userId); res.atualizadas++; }
+        continue;
+      }
+      const dados = { valor: falta, conta_id: c.conta_id, data: auto && auto.data < h ? auto.data : venc, descricao: `Fatura ${c.nome}` };
+      if (auto) {
+        if (Math.abs(Number(auto.valor) - falta) >= 0.005 || auto.conta_id !== c.conta_id) { await admin.from('lancamentos').update(dados).eq('id', auto.id).eq('user_id', userId); res.atualizadas++; }
+      } else {
+        const { error } = await admin.from('lancamentos').insert({ ...dados, user_id: userId, tipo: 'pagamento_fatura', cartao_id: c.id, fatura_mes: fym + '-01', pago: false, conciliado: false, observacao: OBS_PREV, tags: [] });
+        if (error) throw error; res.criadas++;
+      }
+    }
+  }
+  return res;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const SUPA_URL = Deno.env.get('SUPABASE_URL')!;
@@ -349,6 +406,13 @@ Deno.serve(async (req) => {
     if (body.acao === 'telegram_desvincular') { await setCfg('telegram_chats', ''); return json({ ok: true }); }
   } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
 
+  if (body.acao === 'faturas') {
+    try {
+      const { data: pr } = await admin.from('preferencias').select('dados').eq('user_id', userId).limit(1);
+      return json({ ok: true, ...(await atualizarPrevisoesFaturas(admin, userId, pr?.[0]?.dados || {})) });
+    } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
+  }
+
   // ---------- credenciais da Pluggy (segredo do Supabase ou cofre privado do banco) ----------
   let ultimoErroAuth = '';
   const autenticar = async (id: string, secret: string) => {
@@ -431,6 +495,7 @@ Deno.serve(async (req) => {
     const { data: vinculos } = await admin.from('pluggy_contas').select('*').eq('user_id', userId).eq('ativo', true);
     const ativos = (vinculos || []).filter((v: any) => v.conta_id || v.cartao_id);
     if (body.acao === 'relatorio') {
+      try { await atualizarPrevisoesFaturas(admin, userId, prefs); } catch { /* segue com o que houver */ }
       const texto = await montarRelatorio(admin, userId, prefs, P, ativos);
       if (body.previa) return json({ texto });
       const token = await cfg('telegram_token'), chats = (await cfg('telegram_chats')).split(',').filter(Boolean);
@@ -619,6 +684,7 @@ Deno.serve(async (req) => {
     for (const [id, upd] of atualizar) { const { error } = await admin.from('lancamentos').update(upd).eq('id', id).eq('user_id', userId); if (error) throw error; }
     for (const id of remover) { const { error } = await admin.from('lancamentos').delete().eq('id', id).eq('user_id', userId); if (error) throw error; }
     exec.novos = novos.length;
+    try { const f = await atualizarPrevisoesFaturas(admin, userId, prefs); (exec as any).faturas = f; } catch (e) { exec.detalhes.push('faturas: ' + String((e as Error)?.message || e)); }
   } catch (e) {
     exec.erro = String((e as Error)?.message || e).slice(0, 500);
   }

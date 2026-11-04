@@ -148,21 +148,22 @@ function painelSaldos(fim, titulo = 'Saldos de caixa', wid = '') {
 }
 // painel "Resultados": entradas e saídas das contas selecionadas no período
 function resultadosCaixa(lista, ids) {
-  let rec = 0, te = 0, desp = 0, ts = 0;
+  let rec = 0, te = 0, desp = 0, ts = 0, fat = 0;
   for (const l of lista) {
     const e = ids.reduce((a, id) => a + efeitoConta(l, id), 0);
     if (!e) continue;
+    if (l.tipo === 'pagamento_fatura' && e < 0) { fat += e; continue; }
     const transf = l.tipo === 'transferencia' || l.tipo === 'pagamento_fatura';
     if (e > 0) transf ? te += e : rec += e; else transf ? ts += e : desp += e;
   }
-  return { rec: r2(rec), te: r2(te), desp: r2(desp), ts: r2(ts), ent: r2(rec + te), sai: r2(desp + ts), res: r2(rec + te + desp + ts) };
+  return { rec: r2(rec), te: r2(te), desp: r2(desp), fat: r2(fat), ts: r2(ts), despTot: r2(desp + fat), ent: r2(rec + te), sai: r2(desp + fat + ts), res: r2(rec + te + desp + fat + ts) };
 }
 function painelResultados(r, titulo = 'Resultados (R$)') {
   return `<div class="card">${cardH(titulo)}<div class="card-b">
     <div class="kv"><span>Entradas</span>${vH(r.ent)}</div>
     <div class="kv ind"><span>Receitas</span>${vH(r.rec)}</div><div class="kv ind"><span>Transferências</span>${vH(r.te)}</div>
     <div class="kv"><span>Saídas</span>${vH(r.sai)}</div>
-    <div class="kv ind"><span>Despesas</span>${vH(r.desp)}</div><div class="kv ind"><span>Transferências</span>${vH(r.ts)}</div>
+    <div class="kv ind"><span>Despesas</span>${vH(r.desp)}</div><div class="kv ind"><span>Faturas de cartão</span>${vH(r.fat)}</div><div class="kv ind"><span>Transferências</span>${vH(r.ts)}</div>
     <div class="kv tot"><span>Resultado</span>${vH(r.res)}</div></div></div>`;
 }
 function chipsStatus(lista) {

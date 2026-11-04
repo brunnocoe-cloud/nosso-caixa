@@ -291,7 +291,7 @@ function vExtrato() {
         <button class="icon-btn sm" data-act="editConta" data-id="${c.id}" title="Editar conta">${ic('edit')}</button></div>
         <div class="mesnav"><button class="icon-btn" data-act="mes" data-n="-1">${ic('left')}</button><span class="lbl">${nomeMes(ym)}</span><button class="icon-btn" data-act="mes" data-n="1">${ic('right')}</button><button class="icon-btn sm" data-act="mesHoje" title="Mês atual">${ic('clock')}</button></div></div>
       <div class="card">${cardH('Situação confirmada/projetada (R$)')}<div class="card-b flush"><table class="t"><tr><th class="l"></th><th>Confirmada</th><th>Projetada</th></tr>
-        ${row('Saldo anterior', 'ant')}${row('Receitas', 'rec')}${row('Transferências de entrada', 'te')}${row('Despesas', 'desp')}${row('Transferências de saída', 'ts')}${row('Resultado', 'res')}
+        ${row('Saldo anterior', 'ant')}${row('Receitas', 'rec')}${row('Transferências de entrada', 'te')}${row('Despesas da conta', 'desp')}${row('Faturas de cartão', 'fat')}<tr class="tot"><td class="l">Despesas totais</td><td>${vH(a.despTot)}</td><td>${vH(b.despTot)}</td></tr>${row('Transferências de saída', 'ts')}${row('Resultado', 'res')}
         <tr class="tot"><td class="l">Saldo final</td><td>${vH(a.fin)}</td><td>${vH(b.fin)}</td></tr></table></div></div></div>
     <div class="card"><div class="tb">${chipsStatus(['pendente', 'agendado', 'confirmado', 'conciliado'])}${buscaInput()}<button class="icon-btn sm" data-act="ajustarSaldo" data-id="${c.id}" title="Ajustar saldo">${ic('ajsal')}</button>${acoesLista()}</div>
       ${comSaldo ? `<div class="dsep ini"><span>${dataBR(addDias(ini, -1)).slice(0, 5)} · Saldo anterior</span>${vH(b.ant)}</div>` : ''}
