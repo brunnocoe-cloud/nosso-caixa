@@ -4,7 +4,7 @@ import pathlib
 R = pathlib.Path(__file__).parent
 src = R / 'src'
 ordem = ['00-config.js', '01-core.js', '02-ui.js', '03-caixa.js', '04-cartoes-metas.js', '05-relatorios.js',
-         '06-cadastros.js', '07-importar.js', '08-forms.js', '10-acesso.js', '09-eventos.js', '11-openfinance.js']
+         '06-cadastros.js', '07-importar.js', '08-forms.js', '10-acesso.js', '09-eventos.js', '11-openfinance.js', '12-periodo.js']
 js = '\n'.join((src / f).read_text() for f in ordem)
 sql = (R / 'schema.sql').read_text()
 sqlof = (R / 'sql_v4_openfinance.sql').read_text()

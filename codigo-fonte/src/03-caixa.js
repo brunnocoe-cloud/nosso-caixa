@@ -266,8 +266,9 @@ function vPagas() {
 function vExtrato() {
   if (!S.contas.length) return vazio('Nenhuma conta cadastrada.', `<button class="btn pri" data-act="novaConta">Cadastrar conta</button>`);
   if (!S.extratoConta || !byId('contas', S.extratoConta)) S.extratoConta = (contasAtivas()[0] || S.contas[0]).id;
-  const c = byId('contas', S.extratoConta), ym = S.mes, ini = iniMes(ym), fim = fimMes(ym);
-  const doMes = S.lancamentos.filter(l => noMes(l, ym) && efeitoConta(l, c.id) !== 0);
+  const c = byId('contas', S.extratoConta);
+  const { ini, fim, rotulo } = perIntervalo('extrato');
+  const doMes = S.lancamentos.filter(l => l.data >= ini && l.data <= fim && efeitoConta(l, c.id) !== 0);
   const sit = pend => {
     const ls = doMes.filter(l => pend || l.pago);
     const r = resultadosCaixa(ls, [c.id]);
@@ -276,7 +277,7 @@ function vExtrato() {
   };
   const a = sit(false), b = sit(true);
   const lista = filtroBusca(doMes.filter(l => passaStatus(l, S.status))).sort((x, y) => x.data !== y.data ? (x.data < y.data ? -1 : 1) : (x.criado_em < y.criado_em ? -1 : 1));
-  _csvAtual = { linhas: csvLanc(lista), nome: 'extrato-' + c.nome };
+  _csvAtual = { linhas: csvLanc(lista), nome: 'extrato-' + c.nome + '-' + ini + '_' + fim };
   const comSaldo = !S.status.size && !S.busca;
   let s = b.ant, out = '', diaAtual = null;
   lista.forEach((l, i) => {
@@ -289,11 +290,11 @@ function vExtrato() {
   return `<div class="pg"><div class="lado">
       <div class="card"><div class="sel"><select data-act="selExtrato" aria-label="Conta">${S.contas.filter(x => !x.arquivada || x.id === c.id).map(x => `<option value="${x.id}" ${x.id === c.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select>
         <button class="icon-btn sm" data-act="editConta" data-id="${c.id}" title="Editar conta">${ic('edit')}</button></div>
-        <div class="mesnav"><button class="icon-btn" data-act="mes" data-n="-1">${ic('left')}</button><span class="lbl">${nomeMes(ym)}</span><button class="icon-btn" data-act="mes" data-n="1">${ic('right')}</button><button class="icon-btn sm" data-act="mesHoje" title="Mês atual">${ic('clock')}</button></div></div>
+        ${perUI('extrato')}</div>
       <div class="card">${cardH('Situação confirmada/projetada (R$)')}<div class="card-b flush"><table class="t"><tr><th class="l"></th><th>Confirmada</th><th>Projetada</th></tr>
         ${row('Saldo anterior', 'ant')}${row('Receitas', 'rec')}${row('Transferências de entrada', 'te')}${row('Despesas da conta', 'desp')}${row('Faturas de cartão', 'fat')}<tr class="tot"><td class="l">Despesas totais</td><td>${vH(a.despTot)}</td><td>${vH(b.despTot)}</td></tr>${row('Transferências de saída', 'ts')}${row('Resultado', 'res')}
         <tr class="tot"><td class="l">Saldo final</td><td>${vH(a.fin)}</td><td>${vH(b.fin)}</td></tr></table></div></div></div>
     <div class="card"><div class="tb">${chipsStatus(['pendente', 'agendado', 'confirmado', 'conciliado'])}${buscaInput()}<button class="icon-btn sm" data-act="ajustarSaldo" data-id="${c.id}" title="Ajustar saldo">${ic('ajsal')}</button>${acoesLista()}</div>
       ${comSaldo ? `<div class="dsep ini"><span>${dataBR(addDias(ini, -1)).slice(0, 5)} · Saldo anterior</span>${vH(b.ant)}</div>` : ''}
-      ${out || vazio(`Nenhuma movimentação em ${esc(c.nome)} neste mês.`)}</div></div>`;
+      ${out || vazio(`Nenhuma movimentação em ${esc(c.nome)} em ${esc(rotulo)}.`)}</div></div>`;
 }

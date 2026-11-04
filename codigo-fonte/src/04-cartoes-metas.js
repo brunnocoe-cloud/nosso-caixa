@@ -8,32 +8,58 @@ function vCartoes(pos) {
   const fym = S.faturaSel[c.id] || faturaYM(c, hoje());
   const f = faturaInfo(c, fym), u = usoCartao(c);
   const F = S.cartaoFiltro;
-  let itens = f.itens.filter(l => !F.conc.size || F.conc.has(l.conciliado ? 'sim' : 'nao'));
+  const porFatura = PER.cartoes.modo === 'fatura';
+  const P = perIntervalo('cartoes');
+  const doPeriodo = porFatura ? f.itens : S.lancamentos.filter(l => l.cartao_id === c.id && (l.tipo === 'despesa' || l.tipo === 'receita') && l.data >= P.ini && l.data <= P.fim);
+  const pagPeriodo = porFatura ? f.pagamentos : S.lancamentos.filter(l => l.cartao_id === c.id && l.tipo === 'pagamento_fatura' && l.data >= P.ini && l.data <= P.fim);
+  let itens = doPeriodo.filter(l => !F.conc.size || F.conc.has(l.conciliado ? 'sim' : 'nao'));
   if (F.titular) itens = itens.filter(l => (l.criado_por || '') === (F.titular === '_' ? '' : F.titular));
   itens = filtroBusca(itens);
   if (F.ordem === 'valor') itens = [...itens].sort((a, b) => num(b.valor) - num(a.valor));
-  _csvAtual = { linhas: csvLanc(itens.concat(f.pagamentos)), nome: `fatura-${c.nome}-${fym}` };
+  _csvAtual = { linhas: csvLanc(itens.concat(pagPeriodo)), nome: porFatura ? `fatura-${c.nome}-${fym}` : `cartao-${c.nome}-${P.ini}_${P.fim}` };
   const parcFuturas = S.lancamentos.filter(l => l.cartao_id === c.id && l.serie === 'parcelada' && fatMes(l) > fym && l.tipo === 'despesa');
   const titulares = [...new Set([...(c.titulares || []), ...f.itens.map(l => l.criado_por).filter(Boolean)])];
   const porTit = new Map();
-  for (const l of f.itens) { const k = l.criado_por || 'Sem titular'; porTit.set(k, (porTit.get(k) || 0) + (l.tipo === 'despesa' ? -1 : 1) * num(l.valor)); }
+  for (const l of doPeriodo) { const k = l.criado_por || 'Sem titular'; porTit.set(k, (porTit.get(k) || 0) + (l.tipo === 'despesa' ? -1 : 1) * num(l.valor)); }
   const catItens = porCategoria(itens.filter(l => l.tipo === 'despesa'));
   if (F.grafico && catItens.length) pos.push(() => donut('gFatCat', catItens));
-  // lista agrupada por data (como "Total em 17/11")
+  // lista em blocos diários, igual ao extrato: total do dia e total acumulado
   let lista = '';
+  const efeitoC = l => l.tipo === 'despesa' ? -num(l.valor) : num(l.valor);
   if (F.ordem === 'valor') lista = itens.map(l => linhaL(l, { cartao: true })).join('');
   else {
-    const grupos = new Map();
-    for (const l of itens) { if (!grupos.has(l.data)) grupos.set(l.data, []); grupos.get(l.data).push(l); }
-    for (const [d, ls] of grupos) lista += `<div class="dsep"><span>Total em ${dataBR(d).slice(0, 5)}</span>${vH(-soma(ls, l => l.tipo === 'despesa' ? l.valor : -l.valor))}</div>` + ls.map(l => linhaL(l, { cartao: true, semData: true })).join('');
+    const filtrando = F.conc.size || F.titular || S.busca;
+    const ini0 = porFatura && f.saldoAnterior && !filtrando ? -f.saldoAnterior : 0;
+    const rot = porFatura ? (ini0 ? `${dataBR(f.fechamento).slice(0, 5)} · Saldo anterior da fatura` : undefined) : `${dataBR(addDias(P.ini, -1)).slice(0, 5)} · Início do período`;
+    lista = blocosDiarios(itens, l => linhaL(l, { cartao: true }), efeitoC, ini0, rot);
   }
-  if (f.pagamentos.length && !F.conc.size && !F.titular && !S.busca) lista += `<div class="dsep"><span>Pagamentos</span>${vH(f.pago)}</div>` + f.pagamentos.map(l => linhaL(l)).join('');
+  const pagoPer = soma(pagPeriodo.filter(p => p.pago));
+  if (pagPeriodo.length && !F.conc.size && !F.titular && !S.busca) lista += `<div class="dsep"><span>Pagamentos da fatura</span>${vH(pagoPer)}</div>` + pagPeriodo.map(l => linhaL(l)).join('');
+  // resumo quando não é por fatura
+  const compras = soma(itens.filter(l => l.tipo === 'despesa')), creds = soma(itens.filter(l => l.tipo === 'receita'));
+  const dias = Math.max(1, Math.round((new Date(P.fim + 'T12:00') - new Date(P.ini + 'T12:00')) / 864e5) + 1);
+  const resumoPer = `<div class="card"><div class="card-b" style="padding-top:12px">
+        <div class="sec-t">Resumo do período (R$)</div>
+        <div class="kv"><span>Período</span><span>${esc(P.rotulo)}</span></div>
+        <div class="kv"><span>Compras</span>${vH(-compras)}</div>
+        ${creds ? `<div class="kv"><span>Créditos / estornos</span>${vH(creds)}</div>` : ''}
+        <div class="kv tot"><span>Total gasto</span>${vH(-(compras - creds))}</div>
+        <div class="kv"><span>Lançamentos</span><span>${itens.length}</span></div>
+        <div class="kv"><span>Média por dia</span>${vH(-r2((compras - creds) / dias))}</div>
+        ${pagPeriodo.length ? `<div class="kv"><span>Pagamentos de fatura</span>${vH(pagoPer)}</div>` : ''}
+        ${porTit.size ? `<div class="sec-t">Totais por cartão (R$)</div>${[...porTit].map(([n, val]) => `<div class="kv"><span>${esc(n)}</span>${vH(r2(val))}</div>`).join('')}` : ''}
+        <div class="sec-t">Limite (Total)</div>
+        <div class="kv"><span>Limite da conta</span>${vH(num(c.limite), 'muted')}</div>
+        <div class="kv"><span>Utilizado</span>${vH(-u.usado)}</div>
+        <div class="kv tot"><span>Disponível</span>${vH(u.disponivel)}</div>
+        <div class="bar" style="margin-top:8px"><i style="width:${num(c.limite) ? Math.min(100, u.usado / num(c.limite) * 100) : 0}%;background:${esc(c.cor)}"></i></div>
+      </div></div>`;
   return `<div class="pg"><div class="lado">
       <div class="card"><div class="sel"><span class="dot" style="background:${esc(c.cor)}"></span><select data-act="selCartao" aria-label="Cartão">${S.cartoes.filter(x => !x.arquivado || x.id === c.id).map(x => `<option value="${x.id}" ${x.id === c.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select>
         <button class="icon-btn sm" data-act="editCartao" data-id="${c.id}" title="Editar cartão">${ic('edit')}</button></div>
-        <div class="mesnav"><button class="icon-btn" data-act="fatNav" data-id="${c.id}" data-ym="${addMeses(fym, -1)}">${ic('left')}</button><span class="lbl">${nomeMes(fym)}</span><button class="icon-btn" data-act="fatNav" data-id="${c.id}" data-ym="${addMeses(fym, 1)}">${ic('right')}</button>
-          <button class="icon-btn sm" data-act="fatNav" data-id="${c.id}" data-ym="${faturaYM(c, hoje())}" title="Fatura atual">${ic('clock')}</button></div></div>
-      <div class="card"><div class="card-b" style="padding-top:12px">
+        ${perUI('cartoes', `<div class="mesnav"><button class="icon-btn" data-act="fatNav" data-id="${c.id}" data-ym="${addMeses(fym, -1)}">${ic('left')}</button><span class="lbl">${nomeMes(fym)}</span><button class="icon-btn" data-act="fatNav" data-id="${c.id}" data-ym="${addMeses(fym, 1)}">${ic('right')}</button>
+          <button class="icon-btn sm" data-act="fatNav" data-id="${c.id}" data-ym="${faturaYM(c, hoje())}" title="Fatura atual">${ic('clock')}</button></div>`)}</div>
+      ${porFatura ? `<div class="card"><div class="card-b" style="padding-top:12px">
         <div class="sec-t">Fatura ${f.status === 'aberta' ? 'atual' : ''} (R$) ${chipFat(f.status)}</div>
         <div class="kv"><span>Fechamento</span><span>${dataBR(f.fechamento)}</span></div>
         <div class="kv"><span>Vencimento</span><span>${dataBR(f.vencimento)}</span></div>
@@ -56,7 +82,7 @@ function vCartoes(pos) {
         <div class="kv"><span>Utilizado</span>${vH(-u.usado)}</div>
         <div class="kv tot"><span>Disponível</span>${vH(u.disponivel)}</div>
         <div class="bar" style="margin-top:8px"><i style="width:${num(c.limite) ? Math.min(100, u.usado / num(c.limite) * 100) : 0}%;background:${esc(c.cor)}"></i></div>
-      </div></div></div>
+      </div></div>` : resumoPer}</div>
     <div class="card"><div class="tb"><span class="lbl">Filtrar</span>
         <button class="fchip ${F.conc.has('nao') ? 'on' : ''}" data-act="concFiltro" data-v="nao"><i></i>Não conciliados</button>
         <button class="fchip ${F.conc.has('sim') ? 'on' : ''}" data-act="concFiltro" data-v="sim"><i></i>Conciliados</button>
@@ -67,7 +93,7 @@ function vCartoes(pos) {
         <button class="icon-btn sm" data-act="novaCompra" data-id="${c.id}" title="Nova compra neste cartão">${ic('plus')}</button>${acoesLista()}</div>
       ${F.grafico && catItens.length ? `<div style="display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:12px;padding:12px;border-bottom:1px solid var(--line)"><div class="chart-box" style="height:200px"><canvas id="gFatCat"></canvas></div>
         <div class="legend-l">${catItens.map(x => `<div class="row"><span class="dot" style="background:${esc(x.cor)}"></span><span class="n">${esc(x.nome)}</span>${vH(-x.v)}</div>`).join('')}</div></div>` : ''}
-      ${lista || vazio('Nenhum lançamento nesta fatura.', `<button class="btn" data-act="novaCompra" data-id="${c.id}">Lançar compra</button>`)}</div></div>`;
+      ${lista || vazio(porFatura ? 'Nenhum lançamento nesta fatura.' : `Nenhum lançamento em ${esc(P.rotulo)}.`, `<button class="btn" data-act="novaCompra" data-id="${c.id}">Lançar compra</button>`)}</div></div>`;
 }
 
 /* =====================================================================
