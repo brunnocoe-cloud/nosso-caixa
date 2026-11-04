@@ -279,13 +279,9 @@ function vExtrato() {
   const lista = filtroBusca(doMes.filter(l => passaStatus(l, S.status))).sort((x, y) => x.data !== y.data ? (x.data < y.data ? -1 : 1) : (x.criado_em < y.criado_em ? -1 : 1));
   _csvAtual = { linhas: csvLanc(lista), nome: 'extrato-' + c.nome + '-' + ini + '_' + fim };
   const comSaldo = !S.status.size && !S.busca;
-  let s = b.ant, out = '', diaAtual = null;
-  lista.forEach((l, i) => {
-    s += efeitoConta(l, c.id);
-    out += linhaL(l, { ids: [c.id], semConta: true });
-    const prox = lista[i + 1];
-    if (comSaldo && (!prox || prox.data !== l.data)) out += `<div class="dsep"><span style="text-transform:capitalize">${diaSemana(l.data)}, ${dataBR(l.data)}</span>${vH(r2(s))}</div>`;
-  });
+  const out = comSaldo
+    ? blocosDiarios(lista, l => linhaL(l, { ids: [c.id], semConta: true }), l => efeitoConta(l, c.id), b.ant, `${dataBR(addDias(ini, -1)).slice(0, 5)} · Saldo anterior`, PER.extrato.desc)
+    : (PER.extrato.desc ? [...lista].reverse() : lista).map(l => linhaL(l, { ids: [c.id], semConta: true })).join('');
   const row = (n, k) => `<tr><td class="l">${n}</td><td>${vH(a[k])}</td><td>${vH(b[k])}</td></tr>`;
   return `<div class="pg"><div class="lado">
       <div class="card"><div class="sel"><select data-act="selExtrato" aria-label="Conta">${S.contas.filter(x => !x.arquivada || x.id === c.id).map(x => `<option value="${x.id}" ${x.id === c.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select>
@@ -295,6 +291,5 @@ function vExtrato() {
         ${row('Saldo anterior', 'ant')}${row('Receitas', 'rec')}${row('Transferências de entrada', 'te')}${row('Despesas da conta', 'desp')}${row('Faturas de cartão', 'fat')}<tr class="tot"><td class="l">Despesas totais</td><td>${vH(a.despTot)}</td><td>${vH(b.despTot)}</td></tr>${row('Transferências de saída', 'ts')}${row('Resultado', 'res')}
         <tr class="tot"><td class="l">Saldo final</td><td>${vH(a.fin)}</td><td>${vH(b.fin)}</td></tr></table></div></div></div>
     <div class="card"><div class="tb">${chipsStatus(['pendente', 'agendado', 'confirmado', 'conciliado'])}${buscaInput()}<button class="icon-btn sm" data-act="ajustarSaldo" data-id="${c.id}" title="Ajustar saldo">${ic('ajsal')}</button>${acoesLista()}</div>
-      ${comSaldo ? `<div class="dsep ini"><span>${dataBR(addDias(ini, -1)).slice(0, 5)} · Saldo anterior</span>${vH(b.ant)}</div>` : ''}
       ${out || vazio(`Nenhuma movimentação em ${esc(c.nome)} em ${esc(rotulo)}.`)}</div></div>`;
 }

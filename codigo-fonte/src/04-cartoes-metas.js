@@ -31,7 +31,7 @@ function vCartoes(pos) {
     const filtrando = F.conc.size || F.titular || S.busca;
     const ini0 = porFatura && f.saldoAnterior && !filtrando ? -f.saldoAnterior : 0;
     const rot = porFatura ? (ini0 ? `${dataBR(f.fechamento).slice(0, 5)} · Saldo anterior da fatura` : undefined) : `${dataBR(addDias(P.ini, -1)).slice(0, 5)} · Início do período`;
-    lista = blocosDiarios(itens, l => linhaL(l, { cartao: true }), efeitoC, ini0, rot);
+    lista = blocosDiarios(itens, l => linhaL(l, { cartao: true }), efeitoC, ini0, rot, PER.cartoes.desc);
   }
   const pagoPer = soma(pagPeriodo.filter(p => p.pago));
   if (pagPeriodo.length && !F.conc.size && !F.titular && !S.busca) lista += `<div class="dsep"><span>Pagamentos da fatura</span>${vH(pagoPer)}</div>` + pagPeriodo.map(l => linhaL(l)).join('');
