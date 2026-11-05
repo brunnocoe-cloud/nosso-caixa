@@ -1134,6 +1134,8 @@ async function carregarPrefs() {
   if (data?.length) S.prefs = data[0].dados || {};
   else { S.prefs = { recursos: { tags: true, orcamento: true, economia: true, cartoes: true } }; await sb.from('preferencias').insert({ dados: S.prefs }); }
 }
+// conta que o site usa por padrão (Extrato de contas e novo lançamento): a escolhida em Configurações › Geral
+const contaPrincipal = () => byId('contas', S.prefs.conta_principal) || contasAtivas()[0] || S.contas[0];
 async function salvarPrefs(msg) {
   await op(sb.from('preferencias').update({ dados: S.prefs }).eq('user_id', S.uid), msg);
 }
@@ -1779,7 +1781,7 @@ function vPagas() {
    ===================================================================== */
 function vExtrato() {
   if (!S.contas.length) return vazio('Nenhuma conta cadastrada.', `<button class="btn pri" data-act="novaConta">Cadastrar conta</button>`);
-  if (!S.extratoConta || !byId('contas', S.extratoConta)) S.extratoConta = (contasAtivas()[0] || S.contas[0]).id;
+  if (!S.extratoConta || !byId('contas', S.extratoConta)) S.extratoConta = contaPrincipal().id;
   const c = byId('contas', S.extratoConta);
   const { ini, fim, rotulo } = perIntervalo('extrato');
   const doMes = S.lancamentos.filter(l => l.data >= ini && l.data <= fim && efeitoConta(l, c.id) !== 0);
@@ -2340,7 +2342,9 @@ function vConfig() {
       <div class="f"><label>Situação padrão de um novo lançamento</label><select id="padraoPago"><option value="1" ${lsGet('nc_padrao_pago') !== '0' ? 'selected' : ''}>Confirmado (já pago/recebido)</option><option value="0" ${lsGet('nc_padrao_pago') === '0' ? 'selected' : ''}>Pendente</option></select></div>
       <div class="f"><label>Aparência</label><select id="tema">${[['', 'Tema do sistema'], ['light', 'Tema claro'], ['dark', 'Tema escuro']].map(([k, n]) => `<option value="${k}" ${(lsGet('nc_tema') || '') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
       <div class="f"><label>Menu lateral no computador</label><select id="menuFixo"><option value="1" ${lsGet('nc_menu_fixo') !== '0' ? 'selected' : ''}>Sempre visível</option><option value="0" ${lsGet('nc_menu_fixo') === '0' ? 'selected' : ''}>Recolhido</option></select></div>
-      <p class="muted" style="font-size:12px">Estas opções valem só para este aparelho.</p></div>` : ''}
+      <p class="muted" style="font-size:12px">As opções acima valem só para este aparelho.</p>
+      <div class="f" style="border-top:1px solid var(--line);padding-top:14px"><label for="contaPrincipal">Conta principal (abre primeiro no Extrato de contas e vem marcada num lançamento novo)</label><select id="contaPrincipal">${contasAtivas().map(k => `<option value="${k.id}" ${contaPrincipal()?.id === k.id ? 'selected' : ''}>${esc(k.nome)}</option>`).join('')}</select></div>
+      <p class="muted" style="font-size:12px">A conta principal vale para todos os aparelhos.</p></div>` : ''}
   ${aba === 'acesso' ? `<div class="card-b" style="padding-top:16px">
       <p class="muted" style="font-size:13px;margin-top:0">Banco: <b>${esc(c ? c.u.replace('https://', '') : '—')}</b>${c?.fixo ? ' (conexão já embutida no site)' : ''}</p>
       ${c?.fixo ? '<p style="font-size:14px">Para usar em <b>outro celular ou computador</b>, basta abrir o mesmo endereço do site e entrar com o e-mail e a senha.</p>'
@@ -2633,7 +2637,7 @@ function formLanc(l = null, preset = {}) {
   const novo = !l, dup = !!preset.duplicar;
   const detalhado = novo && preset.tipo === 'detalhado';
   const tipo0 = l?.tipo || (detalhado ? 'despesa' : preset.tipo) || 'despesa';
-  const onde0 = l ? (l.cartao_id ? 'cartao:' + l.cartao_id : 'conta:' + l.conta_id) : (preset.onde || lsGet('nc_ultimaOnde') || (contasAtivas()[0] ? 'conta:' + contasAtivas()[0].id : ''));
+  const onde0 = l ? (l.cartao_id ? 'cartao:' + l.cartao_id : 'conta:' + l.conta_id) : (preset.onde || lsGet('nc_ultimaOnde') || (contaPrincipal() ? 'conta:' + contaPrincipal().id : ''));
   const pago0 = l ? !!l.pago : preset.pago ?? (lsGet('nc_padrao_pago') !== '0');
   const conc0 = l ? !!l.conciliado : false;
   const descs = [...new Set([...S.regras.map(r => r.descricao), ...S.lancamentos.slice(-600).map(x => x.descricao)])].slice(0, 400);
@@ -3464,6 +3468,7 @@ document.addEventListener('change', async e => {
   if (d.recurso) { S.prefs.recursos = { ...(S.prefs.recursos || {}), [d.recurso]: t.checked }; await salvarPrefs('Configuração salva'); $('#nav').innerHTML = navHTML(); render(); }
   if (t.id === 'quem') { lsSet('nc_quem', t.value.trim()); $('#quemTop').textContent = t.value.trim() || 'Família'; toast('Salvo neste aparelho'); }
   if (t.id === 'padraoPago') { lsSet('nc_padrao_pago', t.value); toast('Salvo neste aparelho'); }
+  if (t.id === 'contaPrincipal') { S.prefs.conta_principal = t.value; S.extratoConta = t.value; await salvarPrefs('Conta principal salva'); }
   if (t.id === 'tema') { lsSet('nc_tema', t.value); aplicarTema(); render(); }
   if (t.id === 'menuFixo') { lsSet('nc_menu_fixo', t.value); $('#app').classList.toggle('fixo', t.value !== '0'); }
 });

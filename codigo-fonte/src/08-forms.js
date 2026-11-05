@@ -9,7 +9,7 @@ function formLanc(l = null, preset = {}) {
   const novo = !l, dup = !!preset.duplicar;
   const detalhado = novo && preset.tipo === 'detalhado';
   const tipo0 = l?.tipo || (detalhado ? 'despesa' : preset.tipo) || 'despesa';
-  const onde0 = l ? (l.cartao_id ? 'cartao:' + l.cartao_id : 'conta:' + l.conta_id) : (preset.onde || lsGet('nc_ultimaOnde') || (contasAtivas()[0] ? 'conta:' + contasAtivas()[0].id : ''));
+  const onde0 = l ? (l.cartao_id ? 'cartao:' + l.cartao_id : 'conta:' + l.conta_id) : (preset.onde || lsGet('nc_ultimaOnde') || (contaPrincipal() ? 'conta:' + contaPrincipal().id : ''));
   const pago0 = l ? !!l.pago : preset.pago ?? (lsGet('nc_padrao_pago') !== '0');
   const conc0 = l ? !!l.conciliado : false;
   const descs = [...new Set([...S.regras.map(r => r.descricao), ...S.lancamentos.slice(-600).map(x => x.descricao)])].slice(0, 400);

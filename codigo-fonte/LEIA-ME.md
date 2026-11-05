@@ -8,7 +8,7 @@ Site de finanças do casal, feito no formato do Meu Dinheiro (o app que usávamo
 
 ## Primeiro acesso
 
-O site guia três passos: ligar ao banco de dados, rodar o SQL que ele mostra e criar o login. O segundo aparelho entra pelo link que aparece em **Configurações**.
+O site guia três passos: ligar ao banco de dados, rodar o SQL que ele mostra e criar o login. Em outro celular ou computador, basta abrir o mesmo endereço e entrar com o mesmo e-mail e senha.
 
 ## Menu
 
@@ -57,7 +57,7 @@ Convenção desta lista: nomes de telas, botões e opções aparecem em **negrit
   - **Importar lançamentos**: extrato OFX ou CSV do banco ou do cartão. Detecta repetidos e sugere a categoria.
   - **Open Finance (banco)**: lançamentos automáticos do banco e dos cartões, 4 vezes por dia e logo antes de cada resumo, e o resumo no Telegram às 8h e às 18h. A própria tela guia a configuração.
   - **Fechamento posição**: geral, por conta ou por cartão. Bloqueia alterações até a data escolhida.
-- **Configurações de utilização**: liga e desliga recursos (Tags, Orçamento, Metas de economia, Cartões), guarda o nome de quem usa o aparelho, o tema e a cópia de segurança.
+- **Configurações de utilização**: liga e desliga recursos (Tags, Orçamento, Metas de economia, Cartões), guarda o nome de quem usa o aparelho, o tema, a **Conta principal** (a que abre primeiro no Extrato de contas) e a cópia de segurança.
 
 ## Formulário de lançamento
 

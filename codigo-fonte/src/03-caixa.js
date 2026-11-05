@@ -265,7 +265,7 @@ function vPagas() {
    ===================================================================== */
 function vExtrato() {
   if (!S.contas.length) return vazio('Nenhuma conta cadastrada.', `<button class="btn pri" data-act="novaConta">Cadastrar conta</button>`);
-  if (!S.extratoConta || !byId('contas', S.extratoConta)) S.extratoConta = (contasAtivas()[0] || S.contas[0]).id;
+  if (!S.extratoConta || !byId('contas', S.extratoConta)) S.extratoConta = contaPrincipal().id;
   const c = byId('contas', S.extratoConta);
   const { ini, fim, rotulo } = perIntervalo('extrato');
   const doMes = S.lancamentos.filter(l => l.data >= ini && l.data <= fim && efeitoConta(l, c.id) !== 0);

@@ -164,6 +164,7 @@ document.addEventListener('change', async e => {
   if (d.recurso) { S.prefs.recursos = { ...(S.prefs.recursos || {}), [d.recurso]: t.checked }; await salvarPrefs('Configuração salva'); $('#nav').innerHTML = navHTML(); render(); }
   if (t.id === 'quem') { lsSet('nc_quem', t.value.trim()); $('#quemTop').textContent = t.value.trim() || 'Família'; toast('Salvo neste aparelho'); }
   if (t.id === 'padraoPago') { lsSet('nc_padrao_pago', t.value); toast('Salvo neste aparelho'); }
+  if (t.id === 'contaPrincipal') { S.prefs.conta_principal = t.value; S.extratoConta = t.value; await salvarPrefs('Conta principal salva'); }
   if (t.id === 'tema') { lsSet('nc_tema', t.value); aplicarTema(); render(); }
   if (t.id === 'menuFixo') { lsSet('nc_menu_fixo', t.value); $('#app').classList.toggle('fixo', t.value !== '0'); }
 });

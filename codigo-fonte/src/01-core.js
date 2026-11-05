@@ -338,6 +338,8 @@ async function carregarPrefs() {
   if (data?.length) S.prefs = data[0].dados || {};
   else { S.prefs = { recursos: { tags: true, orcamento: true, economia: true, cartoes: true } }; await sb.from('preferencias').insert({ dados: S.prefs }); }
 }
+// conta que o site usa por padrão (Extrato de contas e novo lançamento): a escolhida em Configurações › Geral
+const contaPrincipal = () => byId('contas', S.prefs.conta_principal) || contasAtivas()[0] || S.contas[0];
 async function salvarPrefs(msg) {
   await op(sb.from('preferencias').update({ dados: S.prefs }).eq('user_id', S.uid), msg);
 }
