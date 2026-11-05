@@ -1,11 +1,13 @@
 // =====================================================================
-//  NOSSO CAIXA · Sincronização Open Finance (Pluggy / Meu Pluggy)
-//  Supabase Edge Function "pluggy-sync"
-//  Segredos necessários (Supabase → Edge Functions → Secrets):
-//    PLUGGY_CLIENT_ID, PLUGGY_CLIENT_SECRET
-//  Chamadas:
-//    - pelo site (usuário logado): { acao: 'contas' } ou { acao: 'sincronizar' }
-//    - pelo agendamento (pg_cron): cabeçalho x-nc-cron
+//  NOSSO CAIXA · Sincronização Open Finance (Pluggy / Meu Pluggy) e resumo no Telegram
+//  Supabase Edge Function "pluggy-sync" — publicar com verify_jwt desligado
+//  (supabase/config.toml ou: supabase functions deploy pluggy-sync --no-verify-jwt)
+//  Chaves (Pluggy e Telegram) ficam na tabela privado.config, cadastradas pela tela Open Finance.
+//  Quem pode chamar:
+//    - o site, com usuário logado (JWT conferido aqui dentro)
+//    - o agendamento (pg_cron), com o cabeçalho x-nc-cron
+//    - o Telegram (webhook), com o cabeçalho x-telegram-bot-api-secret-token
+//  Lançamentos em período fechado (fechamento geral, da conta ou do cartão) nunca são alterados.
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
@@ -245,15 +247,30 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
 // no dia do vencimento, com o valor que falta pagar daquela fatura. Quando o banco confirma o pagamento,
 // a sincronização concilia com essa previsão.
 const OBS_PREV = 'Previsão automática da fatura';
+// ===================== FECHAMENTO (mesma regra do site: fechadoAte) =====================
+// lançamento com data até a data de fechamento (geral, da conta ou do cartão) não é criado, alterado nem apagado
+async function criarTrava(admin: any, userId: string, prefs: any) {
+  const [{ data: cs }, { data: ks }] = await Promise.all([
+    admin.from('contas').select('id,fechado_ate').eq('user_id', userId),
+    admin.from('cartoes').select('id,fechado_ate').eq('user_id', userId),
+  ]);
+  const fc = new Map((cs || []).map((c: any) => [c.id, c.fechado_ate])), fk = new Map((ks || []).map((c: any) => [c.id, c.fechado_ate]));
+  return (l: any) => {
+    const datas = [prefs.fechamento_global, fc.get(l.conta_id), fc.get(l.conta_destino_id), fk.get(l.cartao_id)].filter(Boolean).sort();
+    const f = datas.pop();
+    return Boolean(f && l.data && String(l.data).slice(0, 10) <= String(f).slice(0, 10));
+  };
+}
 async function atualizarPrevisoesFaturas(admin: any, userId: string, prefs: any) {
   const base = prefs.faturas_base || '';
   const h = hoje();
   const cartoes = (await tudo(admin, 'cartoes', 'id,nome,arquivado,conta_id,dia_fechamento,dia_vencimento,faturas_fechadas', userId)).filter((c: any) => !c.arquivado && c.conta_id);
-  const res = { criadas: 0, atualizadas: 0, removidas: 0 };
+  const res = { criadas: 0, atualizadas: 0, removidas: 0, bloqueadas: 0 };
+  const travado = await criarTrava(admin, userId, prefs);
   for (const c of cartoes) {
     const out: any[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await admin.from('lancamentos').select('id,tipo,valor,data,pago,fatura_mes,observacao,descricao,conta_id')
+      const { data, error } = await admin.from('lancamentos').select('id,tipo,valor,data,pago,fatura_mes,observacao,descricao,conta_id,cartao_id')
         .eq('user_id', userId).eq('cartao_id', c.id).order('id').range(from, from + 999);
       if (error) throw error; out.push(...data); if (data.length < 1000) break;
     }
@@ -275,17 +292,19 @@ async function atualizarPrevisoesFaturas(admin: any, userId: string, prefs: any)
       const manual = previstas.filter((l: any) => l.observacao !== OBS_PREV);
       const vencida = venc < h;
       if (falta < 0.005) {
-        for (const l of previstas.filter((l: any) => l.observacao === OBS_PREV)) { await admin.from('lancamentos').delete().eq('id', l.id).eq('user_id', userId); res.removidas++; }
+        for (const l of previstas.filter((l: any) => l.observacao === OBS_PREV)) { if (travado(l)) { res.bloqueadas++; continue; } await admin.from('lancamentos').delete().eq('id', l.id).eq('user_id', userId); res.removidas++; }
         continue;
       }
       if (vencida && !auto && !manual.length) continue; // fatura antiga sem previsão: não recria
       if (manual.length && !auto) {
         // previsão que veio do Meu Dinheiro / lançada à mão: só ajusta o valor
         const m0 = manual[0];
+        if (travado(m0)) { res.bloqueadas++; continue; }
         if (Math.abs(Number(m0.valor) - falta) >= 0.005) { await admin.from('lancamentos').update({ valor: falta }).eq('id', m0.id).eq('user_id', userId); res.atualizadas++; }
         continue;
       }
       const dados = { valor: falta, conta_id: c.conta_id, data: auto && auto.data < h ? auto.data : venc, descricao: `Fatura ${c.nome}` };
+      if ((auto && travado(auto)) || travado({ ...dados, cartao_id: c.id })) { res.bloqueadas++; continue; }
       if (auto) {
         if (Math.abs(Number(auto.valor) - falta) >= 0.005 || auto.conta_id !== c.conta_id) { await admin.from('lancamentos').update(dados).eq('id', auto.id).eq('user_id', userId); res.atualizadas++; }
       } else {
@@ -324,10 +343,12 @@ Deno.serve(async (req) => {
     if (!chats.includes(String(chat.id))) {
       // guarda quem pediu acesso; só entra quando alguém clicar em "Vincular" no site (com login)
       const { data: pd } = await admin.rpc('nc_cfg_get', { k: 'telegram_pendentes' });
-      const pend: Record<string, string> = (() => { try { return JSON.parse(String(pd || '{}')); } catch { return {}; } })();
-      pend[String(chat.id)] = chat.first_name || String(chat.id);
-      await admin.rpc('nc_cfg_set', { k: 'telegram_pendentes', v: JSON.stringify(pend) });
-      await tg(token, 'sendMessage', { chat_id: chat.id, text: '🔒 Este bot é privado. Para receber o resumo, peça para clicarem em "Vincular" no Nosso Caixa (Open Finance → Resumo diário no Telegram).' }).catch(() => {});
+      const pend: Record<string, any> = (() => { try { return JSON.parse(String(pd || '{}')); } catch { return {}; } })();
+      if (!pend[String(chat.id)]) {
+        pend[String(chat.id)] = { nome: [chat.first_name, chat.last_name].filter(Boolean).join(' ') || String(chat.id), usuario: chat.username || '', quando: new Date().toISOString() };
+        await admin.rpc('nc_cfg_set', { k: 'telegram_pendentes', v: JSON.stringify(pend) });
+      }
+      await tg(token, 'sendMessage', { chat_id: chat.id, text: '🔒 Este bot é privado.' }).catch(() => {});
       return json({ ok: true });
     }
     if (!/resumo|saldo|relat/i.test(texto)) {
@@ -354,11 +375,34 @@ Deno.serve(async (req) => {
   const cfg = async (k: string) => { const { data } = await admin.rpc('nc_cfg_get', { k }); return (data as string) || ''; };
   const setCfg = async (k: string, v: string) => { const { error } = await admin.rpc('nc_cfg_set', { k, v }); if (error) throw error; };
   try {
+    // pedidos pendentes: { id: { nome, usuario, quando } }; só entra quem o usuário escolher no site
+    const lerJ = async (k: string) => { try { return JSON.parse((await cfg(k)) || '{}'); } catch { return {}; } };
+    const coletarUpdates = async (token: string) => {
+      // sem webhook, as mensagens ficam no getUpdates; com webhook, já chegam como pendentes
+      const wh = await tg(token, 'getWebhookInfo', {});
+      if (wh.url) return;
+      const pend = await lerJ('telegram_pendentes'), ids = new Set((await cfg('telegram_chats')).split(',').filter(Boolean));
+      for (const u of await tg(token, 'getUpdates', { limit: 100 })) {
+        const c = u.message?.chat;
+        if (c?.type === 'private' && !ids.has(String(c.id))) pend[String(c.id)] = { nome: [c.first_name, c.last_name].filter(Boolean).join(' ') || String(c.id), usuario: c.username || '', quando: new Date((u.message?.date || 0) * 1000).toISOString() };
+      }
+      await setCfg('telegram_pendentes', JSON.stringify(pend));
+    };
     if (body.acao === 'telegram_status') {
-      const token = await cfg('telegram_token'), chats = await cfg('telegram_chats');
+      const token = await cfg('telegram_token'), chats = (await cfg('telegram_chats')).split(',').filter(Boolean);
       let bot = '';
-      if (token) { try { bot = (await tg(token, 'getMe', {})).username; } catch { /* token inválido */ } }
-      return json({ token: Boolean(token), bot, conversas: chats ? chats.split(',').filter(Boolean).length : 0 });
+      if (token) { try { bot = (await tg(token, 'getMe', {})).username; await coletarUpdates(token); } catch { /* token inválido */ } }
+      const nomes = await lerJ('telegram_nomes'), pend = await lerJ('telegram_pendentes');
+      // quem foi vinculado antes da lista de nomes existir: busca o nome uma vez no Telegram
+      const semNome = chats.filter(id => !nomes[id]);
+      if (token && semNome.length) {
+        for (const id of semNome) { try { const c = await tg(token, 'getChat', { chat_id: id }); nomes[id] = { nome: [c.first_name, c.last_name].filter(Boolean).join(' ') || id, usuario: c.username || '', quando: '' }; } catch { /* conversa apagada */ } }
+        await setCfg('telegram_nomes', JSON.stringify(nomes));
+      }
+      const norm = (v: any) => typeof v === 'string' ? { nome: v, usuario: '', quando: '' } : v;
+      return json({ token: Boolean(token), bot, conversas: chats.length,
+        pessoas: chats.map(id => ({ id, ...norm(nomes[id] || { nome: 'Pessoa vinculada', usuario: '', quando: '' }) })),
+        pendentes: Object.entries(pend).filter(([id]) => !chats.includes(id)).map(([id, v]) => ({ id, ...norm(v) })) });
     }
     if (body.acao === 'telegram_salvar') {
       const token = String(body.token || '').trim();
@@ -371,31 +415,35 @@ Deno.serve(async (req) => {
     if (body.acao === 'telegram_vincular') {
       const token = await cfg('telegram_token');
       if (!token) return json({ erro: 'Cadastre primeiro o token do bot.' }, 400);
+      const escolhidos: string[] = (Array.isArray(body.ids) ? body.ids : []).map(String);
+      if (!escolhidos.length) return json({ erro: 'Escolha quem vai receber o resumo.' }, 400);
+      await coletarUpdates(token).catch(() => {});
       const ids = new Set((await cfg('telegram_chats')).split(',').filter(Boolean));
+      const pend = await lerJ('telegram_pendentes'), nomes = await lerJ('telegram_nomes');
       const novos: string[] = [];
-      const pend: Record<string, string> = {};
-      try { Object.assign(pend, JSON.parse((await cfg('telegram_pendentes')) || '{}')); } catch { /* vazio */ }
-      for (const [id, nome] of Object.entries(pend)) if (!ids.has(id)) { ids.add(id); novos.push(nome); }
-      await setCfg('telegram_pendentes', '{}');
-      const wh = await tg(token, 'getWebhookInfo', {});
-      if (!wh.url) {
-        const ups = await tg(token, 'getUpdates', { limit: 100 });
-        for (const u of ups) { const ch = u.message?.chat; if (ch?.type === 'private' && !ids.has(String(ch.id))) { ids.add(String(ch.id)); novos.push(ch.first_name || String(ch.id)); } }
+      for (const id of escolhidos) {
+        if (!pend[id]) continue; // só libera quem de fato pediu acesso ao bot
+        ids.add(id); nomes[id] = pend[id]; novos.push(typeof pend[id] === 'string' ? pend[id] : pend[id].nome); delete pend[id];
+        await tg(token, 'sendMessage', { chat_id: id, text: '✅ Nosso Caixa liberado. O resumo chega aqui às 8h e às 18h. Escreva "resumo" a qualquer hora para receber na hora.' }).catch(() => {});
       }
-      if (!ids.size) return json({ erro: 'O bot ainda não recebeu nenhuma mensagem. Abra o bot no Telegram, toque em Iniciar (/start) e tente de novo.' }, 400);
+      if (!novos.length) return json({ erro: 'Nenhum dos escolhidos está na lista de pedidos. Atualize a tela e tente de novo.' }, 400);
       await setCfg('telegram_chats', [...ids].join(','));
-      for (const id of ids) await tg(token, 'sendMessage', { chat_id: id, text: '✅ Nosso Caixa vinculado. O resumo chega aqui às 8h e às 18h. Escreva "resumo" a qualquer hora para receber na hora.' }).catch(() => {});
+      await setCfg('telegram_nomes', JSON.stringify(nomes));
+      await setCfg('telegram_pendentes', JSON.stringify(pend));
       return json({ ok: true, conversas: ids.size, novos });
+    }
+    if (body.acao === 'telegram_recusar') {
+      const pend = await lerJ('telegram_pendentes');
+      for (const id of (Array.isArray(body.ids) ? body.ids : []).map(String)) delete pend[id];
+      await setCfg('telegram_pendentes', JSON.stringify(pend));
+      return json({ ok: true });
     }
     if (body.acao === 'telegram_webhook') {
       const token = await cfg('telegram_token');
       if (!token) return json({ erro: 'Cadastre primeiro o token do bot.' }, 400);
       // antes de ligar o webhook, guarda quem já mandou /start (depois o getUpdates deixa de funcionar)
       try {
-        const pend: Record<string, string> = JSON.parse((await cfg('telegram_pendentes')) || '{}');
-        const ids = new Set((await cfg('telegram_chats')).split(',').filter(Boolean));
-        for (const u of await tg(token, 'getUpdates', { limit: 100 })) { const c = u.message?.chat; if (c?.type === 'private' && !ids.has(String(c.id))) pend[String(c.id)] = c.first_name || String(c.id); }
-        await setCfg('telegram_pendentes', JSON.stringify(pend));
+        await coletarUpdates(token);
       } catch { /* webhook já ligado */ }
       let segredo = await cfg('telegram_webhook_secret');
       if (!segredo) { segredo = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, ''); await setCfg('telegram_webhook_secret', segredo); }
@@ -403,7 +451,13 @@ Deno.serve(async (req) => {
       await tg(token, 'setMyCommands', { commands: [{ command: 'resumo', description: 'Receber o resumo financeiro agora' }] }).catch(() => {});
       return json({ ok: true });
     }
-    if (body.acao === 'telegram_desvincular') { await setCfg('telegram_chats', ''); return json({ ok: true }); }
+    if (body.acao === 'telegram_desvincular') {
+      // com id: remove só essa pessoa; sem id: remove todas
+      const ids = (await cfg('telegram_chats')).split(',').filter(Boolean);
+      const resta = body.id ? ids.filter(i => i !== String(body.id)) : [];
+      await setCfg('telegram_chats', resta.join(','));
+      return json({ ok: true, conversas: resta.length });
+    }
   } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
 
   if (body.acao === 'faturas') {
@@ -429,8 +483,9 @@ Deno.serve(async (req) => {
     if (error) return json({ erro: 'Não foi possível guardar a chave: ' + error.message }, 500);
     return json({ ok: true });
   }
-  let clientId = Deno.env.get('PLUGGY_CLIENT_ID') || '', clientSecret = Deno.env.get('PLUGGY_CLIENT_SECRET') || '';
-  if (!clientId || !clientSecret) { const { data: c } = await admin.rpc('nc_pluggy_cred'); clientId = c?.id || ''; clientSecret = c?.secret || ''; }
+  // a chave da Pluggy fica só no cofre do banco (privado.config), cadastrada pela tela Open Finance
+  const { data: cred } = await admin.rpc('nc_pluggy_cred');
+  const clientId = cred?.id || '', clientSecret = cred?.secret || '';
   if (body.acao === 'status') return json({ credenciais: Boolean(clientId && clientSecret) });
   if (!clientId || !clientSecret) return json({ erro: 'Falta cadastrar a chave da Pluggy (Client ID e Client Secret) na tela Open Finance.' }, 400);
 
@@ -673,6 +728,15 @@ Deno.serve(async (req) => {
       }
       await admin.from('pluggy_contas').update({ atualizado_em: new Date().toISOString() }).eq('id', v.id);
     }
+    // respeita o fechamento: nada entra, muda ou sai em período fechado
+    const travado = await criarTrava(admin, userId, prefs);
+    const porId = new Map(existentes.map(l => [l.id, l]));
+    let bloq = 0;
+    const novosOk = novos.filter(l => travado(l) ? (bloq++, false) : true);
+    const atualizarOk = atualizar.filter(([id, u]) => { const l = porId.get(id); return l && (travado(l) || travado({ ...l, ...u })) ? (bloq++, false) : true; });
+    const removerOk = remover.filter(id => { const l = porId.get(id); return l && travado(l) ? (bloq++, false) : true; });
+    if (bloq) { exec.detalhes.push(`${bloq} lançamento(s) em período fechado não foram alterados`); exec.ignorados += bloq; exec.conciliados -= atualizar.length - atualizarOk.length; }
+    novos.length = 0; novos.push(...novosOk); atualizar.length = 0; atualizar.push(...atualizarOk); remover.length = 0; remover.push(...removerOk);
     if (body.simular) {
       const nomeDe = (l: any) => l.cartao_id ? 'cartao' : 'conta';
       return json({ simulacao: true,

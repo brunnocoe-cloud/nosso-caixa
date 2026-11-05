@@ -1,3 +1,4 @@
+-- Gerado pelo build.py a partir de schema_base.sql + sql_v4_openfinance.sql. Não edite este arquivo.
 -- =====================================================================
 --  NOSSO CAIXA · Esquema do banco (Supabase / PostgreSQL) · versão 3
 --  Como usar: Supabase > SQL Editor > New query > cole tudo > Run

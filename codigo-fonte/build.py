@@ -5,9 +5,17 @@ R = pathlib.Path(__file__).parent
 src = R / 'src'
 ordem = ['00-config.js', '01-core.js', '02-ui.js', '03-caixa.js', '04-cartoes-metas.js', '05-relatorios.js',
          '06-cadastros.js', '07-importar.js', '08-forms.js', '10-acesso.js', '09-eventos.js', '11-openfinance.js', '12-periodo.js']
+# arquivo novo em src/ precisa entrar na lista acima (a ordem importa)
+fora = sorted(p.name for p in src.glob('*.js') if p.name not in ordem)
+faltam = [f for f in ordem if not (src / f).exists()]
+if fora or faltam:
+    raise SystemExit(f'build.py: ajuste a lista "ordem". Fora da lista: {fora or "-"} · não encontrados: {faltam or "-"}')
 js = '\n'.join((src / f).read_text() for f in ordem)
-sql = (R / 'schema.sql').read_text()
+# SQL: uma fonte só. schema.sql (o que se roda no Supabase) = base + Open Finance, gerado aqui.
 sqlof = (R / 'sql_v4_openfinance.sql').read_text()
+sql = ('-- Gerado pelo build.py a partir de schema_base.sql + sql_v4_openfinance.sql. Não edite este arquivo.\n'
+       + (R / 'schema_base.sql').read_text().rstrip() + '\n' + sqlof)
+(R / 'schema.sql').write_text(sql)
 assert '</script' not in sql and '</script' not in js
 html = f'''<!doctype html>
 <html lang="pt-BR">
@@ -40,5 +48,7 @@ html = f'''<!doctype html>
 </body>
 </html>
 '''
-(R / 'index.html').write_text(html)
-print('index.html', len(html) // 1024, 'KB')
+# dentro do repositório (pasta codigo-fonte), o site publicado é o index.html da raiz
+destino = R.parent / 'index.html' if R.name == 'codigo-fonte' else R / 'index.html'
+destino.write_text(html)
+print(destino, len(html) // 1024, 'KB')

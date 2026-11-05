@@ -3,7 +3,7 @@
    ===================================================================== */
 const WIDGETS = [
   ['saldos', 'Saldos de caixa', 'e'], ['resmes', 'Resultado do mês', 'e'], ['rescaixa', 'Resultados de caixa', 'e'],
-  ['despcat', 'Despesas por categoria', 'e'], ['reccat', 'Receitas por categoria', 'e'], ['balanco', 'Balanço patrimonial', 'e'], ['metasdesp', 'Metas de despesas', 'e', 'orcamento'],
+  ['despcat', 'Despesas por categoria', 'e'], ['reccat', 'Receitas por categoria', 'e'], ['balanco', 'Balanço patrimonial', 'e'], ['metasdesp', 'Orçamento', 'e', 'orcamento'],
   ['receber', 'Contas a receber', 'd'], ['pagar', 'Contas a pagar', 'd'], ['ultimos', 'Últimos lançamentos', 'd'], ['cartoes', 'Cartões de crédito', 'd', 'cartoes'],
   ['fluxo', 'Fluxo de caixa', 'd'], ['economia', 'Metas de economia', 'd', 'economia'],
 ];
@@ -77,7 +77,7 @@ function vVisao(pos) {
 
   W.metasdesp = () => {
     const linhas = linhasOrcamento(ym).filter(x => x.meta);
-    return wCard('metasdesp', 'Metas de despesas', linhas.length ? linhas.slice(0, 8).map(x => barraMeta(x.nome, x.realizado, x.meta, x.cor)).join('') : vazio('Sem metas de despesa definidas no período.', `<a class="btn" href="#orcamento">Definir metas</a>`));
+    return wCard('metasdesp', 'Orçamento', linhas.length ? linhas.slice(0, 8).map(x => barraMeta(x.nome, x.realizado, x.meta, x.cor)).join('') : vazio('Sem orçamento definido no período.', `<a class="btn" href="#orcamento">Definir metas</a>`));
   };
 
   const pendentes = tipo => S.lancamentos.filter(l => !l.pago && ehCaixa(l) && l.data <= fim && (tipo === 'r' ? l.tipo === 'receita' : (l.tipo === 'despesa' || l.tipo === 'pagamento_fatura'))

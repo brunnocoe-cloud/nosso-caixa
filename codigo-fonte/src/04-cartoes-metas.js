@@ -122,7 +122,7 @@ function vOrcamento() {
         <div class="kv tot"><span>Saldo das metas</span>${vH(tM - tR)}</div><div class="kv"><span>Despesas sem meta</span>${vH(-tOut)}</div>
         ${tM ? `<div class="bar" style="margin-top:8px"><i style="width:${Math.min(100, tR / tM * 100)}%;background:${tR > tM ? css('--neg') : css('--accent')}"></i></div>` : ''}
         <div class="acoes-l"><button class="lnk acc" data-act="definirMetas">Definir metas</button>${temAnterior ? `<button class="lnk acc" data-act="copiarOrc">Copiar de ${mesCurto(addMeses(ym, -1))}</button>` : ''}</div></div></div></div>
-    <div class="card">${cardH(`Metas de despesa · ${nomeMes(ym)}`, acoesLista())}
+    <div class="card">${cardH(`Orçamento · ${nomeMes(ym)}`, acoesLista())}
       ${comMeta.length ? `<table class="t"><tr><th class="l">Categoria</th><th>Meta</th><th>Realizado</th><th>Saldo</th><th class="l hide-m" style="width:28%">Uso</th></tr>
         ${comMeta.map(x => { const pct = x.realizado / x.meta * 100; const cor = pct > 100 ? css('--neg') : pct > 85 ? css('--warn') : x.cor;
           return `<tr class="click" data-act="verCategoria" data-id="${x.id}"><td class="l"><span class="dot" style="background:${esc(x.cor)};margin-right:8px"></span>${esc(x.nome)}</td><td>${vH(x.meta, 'muted')}</td><td>${vH(-x.realizado)}</td><td>${vH(x.meta - x.realizado)}</td>

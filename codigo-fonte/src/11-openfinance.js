@@ -52,7 +52,7 @@ function vOpenFinance() {
   ${OF.erro ? `<div class="err-msg">${esc(OF.erro)}</div>` : ''}
   <div class="card">${cardH('Lançamentos automáticos pelo Open Finance')}
     <div class="card-b" style="padding-top:12px">
-      <p style="margin-top:0">O Nosso Caixa busca os lançamentos das contas e cartões conectados no <b>Meu Pluggy</b> (gratuito) <b>4 vezes por dia</b> (0h, 6h, 12h e 18h) e também quando você clica em <b>Sincronizar agora</b>.
+      <p style="margin-top:0">O Nosso Caixa busca os lançamentos das contas e cartões conectados no <b>Meu Pluggy</b> (gratuito) <b>4 vezes por dia</b> (0h15, 6h15, 12h15 e 18h15) e também quando você clica em <b>Sincronizar agora</b>.
       Lançamentos que já existem (por exemplo, contas fixas e parcelas) são <b>conciliados</b> em vez de duplicados. A categoria vem das <b>regras de preenchimento</b> e do histórico.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn pri" data-act="ofSincronizar">${ic('sync')}Sincronizar agora</button>
@@ -98,10 +98,14 @@ function vOpenFinance() {
     <div class="card-b" style="padding-top:12px;font-size:14px">
       <p style="margin-top:0">Todo dia às <b>8h</b> e às <b>18h</b> chega no Telegram (ou na hora, escrevendo <b>resumo</b> para o bot): saldo do banco, gasto no cartão, valor das faturas, Pix enviados e recebidos e quanto do orçamento já foi usado. Gratuito.</p>
       ${OF.tg?.token ? `<p>${ic('taskok')} Bot <b>@${esc(OF.tg.bot || '?')}</b> configurado · ${OF.tg.conversas ? `<b>${OF.tg.conversas}</b> pessoa(s) recebendo` : '<span style="color:var(--late)">ninguém vinculado ainda</span>'}</p>
+        ${(OF.tg.pessoas || []).length ? `<div style="margin:0 0 10px"><b>Recebem o resumo</b>${OF.tg.pessoas.map(p => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">${ic('user')}<span style="flex:1">${esc(p.nome)}${p.usuario ? ` <span class="muted">@${esc(p.usuario)}</span>` : ''}</span><button class="btn out sm" data-act="tgRemover" data-id="${esc(p.id)}" data-nome="${esc(p.nome)}">Remover</button></div>`).join('')}</div>` : ''}
+        ${(OF.tg.pendentes || []).length ? `<div style="margin:0 0 10px;padding:10px;border:1px solid var(--line);border-radius:8px"><b>Pediram para receber</b><p class="muted" style="font-size:12px;margin:2px 0 6px">Marque só quem você conhece. Qualquer pessoa que achar o bot pode aparecer aqui.</p>
+          ${OF.tg.pendentes.map(p => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0"><input type="checkbox" class="tgPend" value="${esc(p.id)}"><span style="flex:1">${esc(p.nome)}${p.usuario ? ` <span class="muted">@${esc(p.usuario)}</span>` : ''}${p.quando ? ` <span class="muted" style="font-size:12px">· ${fmtDH(p.quando)}</span>` : ''}</span></label>`).join('')}
+          <div style="display:flex;gap:8px;margin-top:6px"><button class="btn pri sm" data-act="tgVincular">Liberar marcados</button><button class="btn out sm" data-act="tgRecusar">Recusar marcados</button></div></div>` : ''}
         <ol style="padding-left:20px;line-height:1.6;margin:0 0 10px">
           <li>Abra <a href="https://t.me/${esc(OF.tg.bot || '')}" target="_blank" rel="noopener"><b>t.me/${esc(OF.tg.bot || '')}</b></a> no celular e toque em <b>Iniciar</b>. A Rúbia pode fazer o mesmo para receber também.</li>
-          <li>Volte aqui e clique em <b>Vincular</b>.</li></ol>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" data-act="tgVincular">Vincular</button><button class="btn pri" data-act="tgTeste" ${OF.tg.conversas ? '' : 'disabled'}>Enviar resumo agora</button><button class="btn out sm" data-act="tgPrevia">Ver prévia</button><button class="btn out sm" data-act="tgTrocar">Trocar bot</button></div>`
+          <li>Volte aqui e clique em <b>Procurar pedidos</b>. Marque o nome e clique em <b>Liberar marcados</b>.</li></ol>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" data-act="tgAtualizar">Procurar pedidos</button><button class="btn pri" data-act="tgTeste" ${OF.tg.conversas ? '' : 'disabled'}>Enviar resumo agora</button><button class="btn out sm" data-act="tgPrevia">Ver prévia</button><button class="btn out sm" data-act="tgTrocar">Trocar bot</button></div>`
       : `<ol style="padding-left:20px;line-height:1.6;margin:0 0 10px">
           <li>No Telegram, abra <a href="https://t.me/BotFather" target="_blank" rel="noopener"><b>@BotFather</b></a>, envie <code>/newbot</code>, escolha um nome (ex.: Nosso Caixa) e um usuário terminado em <i>bot</i>.</li>
           <li>Copie o <b>token</b> que ele devolve e cole abaixo.</li></ol>
@@ -138,9 +142,28 @@ Object.assign(ACOES, {
     OF.contas = null; render();
   },
   tgTrocar: () => { OF.tg = { token: false }; render(); },
-  tgVincular: async (d, el) => {
+  tgAtualizar: async (d, el) => {
     el.disabled = true;
-    try { const r = await ofChamar({ acao: 'telegram_vincular' }); await ofChamar({ acao: 'telegram_webhook' }).catch(() => {}); toast(`${r.conversas} pessoa(s) vinculada(s). Confira a mensagem no Telegram.`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    try { OF.tg = await ofChamar({ acao: 'telegram_status' }); toast(OF.tg.pendentes?.length ? `${OF.tg.pendentes.length} pedido(s) aguardando` : 'Nenhum pedido novo. Toque em Iniciar no bot e tente de novo.'); } catch (e) { toast(e.message, true); }
+    render();
+  },
+  tgVincular: async (d, el) => {
+    const ids = [...document.querySelectorAll('.tgPend:checked')].map(x => x.value);
+    if (!ids.length) return toast('Marque quem vai receber o resumo.', true);
+    el.disabled = true;
+    try { const r = await ofChamar({ acao: 'telegram_vincular', ids }); await ofChamar({ acao: 'telegram_webhook' }).catch(() => {}); toast(`Liberado: ${r.novos.join(', ')}. Confira a mensagem no Telegram.`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    OF.contas = null; render();
+  },
+  tgRecusar: async (d, el) => {
+    const ids = [...document.querySelectorAll('.tgPend:checked')].map(x => x.value);
+    if (!ids.length) return toast('Marque os pedidos que quer recusar.', true);
+    el.disabled = true;
+    try { await ofChamar({ acao: 'telegram_recusar', ids }); toast('Pedido(s) recusado(s)'); } catch (e) { toast(e.message, true); }
+    OF.contas = null; render();
+  },
+  tgRemover: async d => {
+    if (!await confirmar('Remover do resumo', `Parar de enviar o resumo para <b>${esc(d.nome)}</b>?`, 'Remover')) return;
+    try { await ofChamar({ acao: 'telegram_desvincular', id: d.id }); toast(`${d.nome} não recebe mais o resumo`); } catch (e) { toast(e.message, true); }
     OF.contas = null; render();
   },
   tgTeste: async (d, el) => {

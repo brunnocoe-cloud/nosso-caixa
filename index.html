@@ -349,6 +349,7 @@ body.ocultar .num.v{filter:blur(6px);user-select:none}
 <body>
 <div id="root"></div>
 <script type="text/plain" id="sqlSchema">
+-- Gerado pelo build.py a partir de schema_base.sql + sql_v4_openfinance.sql. Não edite este arquivo.
 -- =====================================================================
 --  NOSSO CAIXA · Esquema do banco (Supabase / PostgreSQL) · versão 3
 --  Como usar: Supabase > SQL Editor > New query > cole tudo > Run
@@ -1254,7 +1255,7 @@ const MENU = [
 ];
 const TITULOS = {
   visao: 'Visão geral', lancamentos: 'Lançamentos de caixa', fluxo: 'Fluxo de caixa', pagar: 'Contas a pagar e receber', pagas: 'Contas pagas e recebidas',
-  extrato: 'Extrato de contas', cartoes: 'Cartões de crédito', orcamento: 'Metas de despesa', economia: 'Metas de economia', relatorios: 'Relatórios',
+  extrato: 'Extrato de contas', cartoes: 'Cartões de crédito', orcamento: 'Orçamento', economia: 'Metas de economia', relatorios: 'Relatórios',
   categorias: 'Categorias', contas: 'Contas', tags: 'Tags', documentos: 'Documentos', regras: 'Regras de preenchimento', importar: 'Importar lançamentos',
   fechamento: 'Fechamento de posição', openfinance: 'Open Finance · lançamentos automáticos', config: 'Configurações de utilização',
 };
@@ -1516,7 +1517,7 @@ const csvLanc = lista => [['Data', 'Tipo', 'Descrição', 'Categoria', 'Conta/Ca
    ===================================================================== */
 const WIDGETS = [
   ['saldos', 'Saldos de caixa', 'e'], ['resmes', 'Resultado do mês', 'e'], ['rescaixa', 'Resultados de caixa', 'e'],
-  ['despcat', 'Despesas por categoria', 'e'], ['reccat', 'Receitas por categoria', 'e'], ['balanco', 'Balanço patrimonial', 'e'], ['metasdesp', 'Metas de despesas', 'e', 'orcamento'],
+  ['despcat', 'Despesas por categoria', 'e'], ['reccat', 'Receitas por categoria', 'e'], ['balanco', 'Balanço patrimonial', 'e'], ['metasdesp', 'Orçamento', 'e', 'orcamento'],
   ['receber', 'Contas a receber', 'd'], ['pagar', 'Contas a pagar', 'd'], ['ultimos', 'Últimos lançamentos', 'd'], ['cartoes', 'Cartões de crédito', 'd', 'cartoes'],
   ['fluxo', 'Fluxo de caixa', 'd'], ['economia', 'Metas de economia', 'd', 'economia'],
 ];
@@ -1590,7 +1591,7 @@ function vVisao(pos) {
 
   W.metasdesp = () => {
     const linhas = linhasOrcamento(ym).filter(x => x.meta);
-    return wCard('metasdesp', 'Metas de despesas', linhas.length ? linhas.slice(0, 8).map(x => barraMeta(x.nome, x.realizado, x.meta, x.cor)).join('') : vazio('Sem metas de despesa definidas no período.', `<a class="btn" href="#orcamento">Definir metas</a>`));
+    return wCard('metasdesp', 'Orçamento', linhas.length ? linhas.slice(0, 8).map(x => barraMeta(x.nome, x.realizado, x.meta, x.cor)).join('') : vazio('Sem orçamento definido no período.', `<a class="btn" href="#orcamento">Definir metas</a>`));
   };
 
   const pendentes = tipo => S.lancamentos.filter(l => !l.pago && ehCaixa(l) && l.data <= fim && (tipo === 'r' ? l.tipo === 'receita' : (l.tipo === 'despesa' || l.tipo === 'pagamento_fatura'))
@@ -1931,7 +1932,7 @@ function vOrcamento() {
         <div class="kv tot"><span>Saldo das metas</span>${vH(tM - tR)}</div><div class="kv"><span>Despesas sem meta</span>${vH(-tOut)}</div>
         ${tM ? `<div class="bar" style="margin-top:8px"><i style="width:${Math.min(100, tR / tM * 100)}%;background:${tR > tM ? css('--neg') : css('--accent')}"></i></div>` : ''}
         <div class="acoes-l"><button class="lnk acc" data-act="definirMetas">Definir metas</button>${temAnterior ? `<button class="lnk acc" data-act="copiarOrc">Copiar de ${mesCurto(addMeses(ym, -1))}</button>` : ''}</div></div></div></div>
-    <div class="card">${cardH(`Metas de despesa · ${nomeMes(ym)}`, acoesLista())}
+    <div class="card">${cardH(`Orçamento · ${nomeMes(ym)}`, acoesLista())}
       ${comMeta.length ? `<table class="t"><tr><th class="l">Categoria</th><th>Meta</th><th>Realizado</th><th>Saldo</th><th class="l hide-m" style="width:28%">Uso</th></tr>
         ${comMeta.map(x => { const pct = x.realizado / x.meta * 100; const cor = pct > 100 ? css('--neg') : pct > 85 ? css('--warn') : x.cor;
           return `<tr class="click" data-act="verCategoria" data-id="${x.id}"><td class="l"><span class="dot" style="background:${esc(x.cor)};margin-right:8px"></span>${esc(x.nome)}</td><td>${vH(x.meta, 'muted')}</td><td>${vH(-x.realizado)}</td><td>${vH(x.meta - x.realizado)}</td>
@@ -2330,7 +2331,7 @@ function vConfig() {
   ${aba === 'recursos' ? `<div class="grp-h" style="padding:12px 16px;color:var(--muted);font-weight:500">Cadastros</div>
       ${linha('tags', 'tag', 'Tags', 'Utilizar o cadastro de tags, adicionando o campo aos lançamentos.')}
       <div class="grp-h" style="padding:12px 16px;color:var(--muted);font-weight:500">Metas</div>
-      ${linha('orcamento', 'pie', 'Metas de orçamento', 'Utilizar o módulo de metas de orçamento (limite de despesa por categoria).')}
+      ${linha('orcamento', 'pie', 'Orçamento', 'Utilizar o orçamento (limite de despesa por categoria).')}
       ${linha('economia', 'savings', 'Metas de economia', 'Utilizar o módulo de metas de economia.')}
       <div class="grp-h" style="padding:12px 16px;color:var(--muted);font-weight:500">Outros recursos</div>
       ${linha('cartoes', 'cartao', 'Cartões de crédito', 'Utilizar o módulo de cartões de crédito.')}` : ''}
@@ -3562,7 +3563,7 @@ function vOpenFinance() {
   ${OF.erro ? `<div class="err-msg">${esc(OF.erro)}</div>` : ''}
   <div class="card">${cardH('Lançamentos automáticos pelo Open Finance')}
     <div class="card-b" style="padding-top:12px">
-      <p style="margin-top:0">O Nosso Caixa busca os lançamentos das contas e cartões conectados no <b>Meu Pluggy</b> (gratuito) <b>4 vezes por dia</b> (0h, 6h, 12h e 18h) e também quando você clica em <b>Sincronizar agora</b>.
+      <p style="margin-top:0">O Nosso Caixa busca os lançamentos das contas e cartões conectados no <b>Meu Pluggy</b> (gratuito) <b>4 vezes por dia</b> (0h15, 6h15, 12h15 e 18h15) e também quando você clica em <b>Sincronizar agora</b>.
       Lançamentos que já existem (por exemplo, contas fixas e parcelas) são <b>conciliados</b> em vez de duplicados. A categoria vem das <b>regras de preenchimento</b> e do histórico.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn pri" data-act="ofSincronizar">${ic('sync')}Sincronizar agora</button>
@@ -3608,10 +3609,14 @@ function vOpenFinance() {
     <div class="card-b" style="padding-top:12px;font-size:14px">
       <p style="margin-top:0">Todo dia às <b>8h</b> e às <b>18h</b> chega no Telegram (ou na hora, escrevendo <b>resumo</b> para o bot): saldo do banco, gasto no cartão, valor das faturas, Pix enviados e recebidos e quanto do orçamento já foi usado. Gratuito.</p>
       ${OF.tg?.token ? `<p>${ic('taskok')} Bot <b>@${esc(OF.tg.bot || '?')}</b> configurado · ${OF.tg.conversas ? `<b>${OF.tg.conversas}</b> pessoa(s) recebendo` : '<span style="color:var(--late)">ninguém vinculado ainda</span>'}</p>
+        ${(OF.tg.pessoas || []).length ? `<div style="margin:0 0 10px"><b>Recebem o resumo</b>${OF.tg.pessoas.map(p => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">${ic('user')}<span style="flex:1">${esc(p.nome)}${p.usuario ? ` <span class="muted">@${esc(p.usuario)}</span>` : ''}</span><button class="btn out sm" data-act="tgRemover" data-id="${esc(p.id)}" data-nome="${esc(p.nome)}">Remover</button></div>`).join('')}</div>` : ''}
+        ${(OF.tg.pendentes || []).length ? `<div style="margin:0 0 10px;padding:10px;border:1px solid var(--line);border-radius:8px"><b>Pediram para receber</b><p class="muted" style="font-size:12px;margin:2px 0 6px">Marque só quem você conhece. Qualquer pessoa que achar o bot pode aparecer aqui.</p>
+          ${OF.tg.pendentes.map(p => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0"><input type="checkbox" class="tgPend" value="${esc(p.id)}"><span style="flex:1">${esc(p.nome)}${p.usuario ? ` <span class="muted">@${esc(p.usuario)}</span>` : ''}${p.quando ? ` <span class="muted" style="font-size:12px">· ${fmtDH(p.quando)}</span>` : ''}</span></label>`).join('')}
+          <div style="display:flex;gap:8px;margin-top:6px"><button class="btn pri sm" data-act="tgVincular">Liberar marcados</button><button class="btn out sm" data-act="tgRecusar">Recusar marcados</button></div></div>` : ''}
         <ol style="padding-left:20px;line-height:1.6;margin:0 0 10px">
           <li>Abra <a href="https://t.me/${esc(OF.tg.bot || '')}" target="_blank" rel="noopener"><b>t.me/${esc(OF.tg.bot || '')}</b></a> no celular e toque em <b>Iniciar</b>. A Rúbia pode fazer o mesmo para receber também.</li>
-          <li>Volte aqui e clique em <b>Vincular</b>.</li></ol>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" data-act="tgVincular">Vincular</button><button class="btn pri" data-act="tgTeste" ${OF.tg.conversas ? '' : 'disabled'}>Enviar resumo agora</button><button class="btn out sm" data-act="tgPrevia">Ver prévia</button><button class="btn out sm" data-act="tgTrocar">Trocar bot</button></div>`
+          <li>Volte aqui e clique em <b>Procurar pedidos</b>. Marque o nome e clique em <b>Liberar marcados</b>.</li></ol>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" data-act="tgAtualizar">Procurar pedidos</button><button class="btn pri" data-act="tgTeste" ${OF.tg.conversas ? '' : 'disabled'}>Enviar resumo agora</button><button class="btn out sm" data-act="tgPrevia">Ver prévia</button><button class="btn out sm" data-act="tgTrocar">Trocar bot</button></div>`
       : `<ol style="padding-left:20px;line-height:1.6;margin:0 0 10px">
           <li>No Telegram, abra <a href="https://t.me/BotFather" target="_blank" rel="noopener"><b>@BotFather</b></a>, envie <code>/newbot</code>, escolha um nome (ex.: Nosso Caixa) e um usuário terminado em <i>bot</i>.</li>
           <li>Copie o <b>token</b> que ele devolve e cole abaixo.</li></ol>
@@ -3648,9 +3653,28 @@ Object.assign(ACOES, {
     OF.contas = null; render();
   },
   tgTrocar: () => { OF.tg = { token: false }; render(); },
-  tgVincular: async (d, el) => {
+  tgAtualizar: async (d, el) => {
     el.disabled = true;
-    try { const r = await ofChamar({ acao: 'telegram_vincular' }); await ofChamar({ acao: 'telegram_webhook' }).catch(() => {}); toast(`${r.conversas} pessoa(s) vinculada(s). Confira a mensagem no Telegram.`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    try { OF.tg = await ofChamar({ acao: 'telegram_status' }); toast(OF.tg.pendentes?.length ? `${OF.tg.pendentes.length} pedido(s) aguardando` : 'Nenhum pedido novo. Toque em Iniciar no bot e tente de novo.'); } catch (e) { toast(e.message, true); }
+    render();
+  },
+  tgVincular: async (d, el) => {
+    const ids = [...document.querySelectorAll('.tgPend:checked')].map(x => x.value);
+    if (!ids.length) return toast('Marque quem vai receber o resumo.', true);
+    el.disabled = true;
+    try { const r = await ofChamar({ acao: 'telegram_vincular', ids }); await ofChamar({ acao: 'telegram_webhook' }).catch(() => {}); toast(`Liberado: ${r.novos.join(', ')}. Confira a mensagem no Telegram.`); OF.erro = ''; } catch (e) { OF.erro = e.message; toast(e.message, true); }
+    OF.contas = null; render();
+  },
+  tgRecusar: async (d, el) => {
+    const ids = [...document.querySelectorAll('.tgPend:checked')].map(x => x.value);
+    if (!ids.length) return toast('Marque os pedidos que quer recusar.', true);
+    el.disabled = true;
+    try { await ofChamar({ acao: 'telegram_recusar', ids }); toast('Pedido(s) recusado(s)'); } catch (e) { toast(e.message, true); }
+    OF.contas = null; render();
+  },
+  tgRemover: async d => {
+    if (!await confirmar('Remover do resumo', `Parar de enviar o resumo para <b>${esc(d.nome)}</b>?`, 'Remover')) return;
+    try { await ofChamar({ acao: 'telegram_desvincular', id: d.id }); toast(`${d.nome} não recebe mais o resumo`); } catch (e) { toast(e.message, true); }
     OF.contas = null; render();
   },
   tgTeste: async (d, el) => {

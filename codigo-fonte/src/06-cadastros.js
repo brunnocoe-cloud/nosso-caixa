@@ -136,7 +136,7 @@ function vConfig() {
   ${aba === 'recursos' ? `<div class="grp-h" style="padding:12px 16px;color:var(--muted);font-weight:500">Cadastros</div>
       ${linha('tags', 'tag', 'Tags', 'Utilizar o cadastro de tags, adicionando o campo aos lançamentos.')}
       <div class="grp-h" style="padding:12px 16px;color:var(--muted);font-weight:500">Metas</div>
-      ${linha('orcamento', 'pie', 'Metas de orçamento', 'Utilizar o módulo de metas de orçamento (limite de despesa por categoria).')}
+      ${linha('orcamento', 'pie', 'Orçamento', 'Utilizar o orçamento (limite de despesa por categoria).')}
       ${linha('economia', 'savings', 'Metas de economia', 'Utilizar o módulo de metas de economia.')}
       <div class="grp-h" style="padding:12px 16px;color:var(--muted);font-weight:500">Outros recursos</div>
       ${linha('cartoes', 'cartao', 'Cartões de crédito', 'Utilizar o módulo de cartões de crédito.')}` : ''}

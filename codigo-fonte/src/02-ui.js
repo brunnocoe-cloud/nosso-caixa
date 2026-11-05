@@ -28,7 +28,7 @@ const MENU = [
 ];
 const TITULOS = {
   visao: 'Visão geral', lancamentos: 'Lançamentos de caixa', fluxo: 'Fluxo de caixa', pagar: 'Contas a pagar e receber', pagas: 'Contas pagas e recebidas',
-  extrato: 'Extrato de contas', cartoes: 'Cartões de crédito', orcamento: 'Metas de despesa', economia: 'Metas de economia', relatorios: 'Relatórios',
+  extrato: 'Extrato de contas', cartoes: 'Cartões de crédito', orcamento: 'Orçamento', economia: 'Metas de economia', relatorios: 'Relatórios',
   categorias: 'Categorias', contas: 'Contas', tags: 'Tags', documentos: 'Documentos', regras: 'Regras de preenchimento', importar: 'Importar lançamentos',
   fechamento: 'Fechamento de posição', openfinance: 'Open Finance · lançamentos automáticos', config: 'Configurações de utilização',
 };

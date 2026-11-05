@@ -1,0 +1,5 @@
+# Configuração da função publicada no Supabase.
+# verify_jwt = false: a função confere o login por dentro e também aceita o agendamento (x-nc-cron)
+# e o Telegram (webhook). Com verify_jwt ligado, o agendamento e o bot param de funcionar.
+[functions.pluggy-sync]
+verify_jwt = false
