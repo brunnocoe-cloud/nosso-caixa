@@ -460,6 +460,48 @@ Deno.serve(async (req) => {
     }
   } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
 
+  // débitos do banco que eram pagamento de fatura mas entraram como despesa (antes da detecção pelo valor):
+  // a previsão da fatura recebe o débito e a despesa repetida sai. simular: só lista.
+  if (body.acao === 'unificar_faturas') {
+    try {
+      const { data: pr } = await admin.from('preferencias').select('dados').eq('user_id', userId).limit(1);
+      const prefs = pr?.[0]?.dados || {};
+      const desde = addDias(hoje(), -90);
+      const [{ data: ks }, { data: ls, error }] = await Promise.all([
+        admin.from('cartoes').select('id,nome,conta_id,arquivado').eq('user_id', userId),
+        admin.from('lancamentos').select('id,tipo,descricao,valor,data,pago,conta_id,cartao_id,fatura_mes,ext_id,observacao').eq('user_id', userId).gte('data', desde),
+      ]);
+      if (error) throw error;
+      const travado = await criarTrava(admin, userId, prefs);
+      const usadosU = new Set<string>(); const pares: any[] = [];
+      const desp = (ls || []).filter((l: any) => l.tipo === 'despesa' && !l.cartao_id && String(l.ext_id || '').startsWith('pluggy:'));
+      for (const d of desp) {
+        const ids = new Set((ks || []).filter((k: any) => !k.arquivado && k.conta_id === d.conta_id).map((k: any) => k.id));
+        const prev = (ls || []).filter((l: any) => !usadosU.has(l.id) && l.tipo === 'pagamento_fatura' && ids.has(l.cartao_id)
+            && !String(l.ext_id || '').startsWith('pluggy:') && Math.abs(difDias(l.data, d.data)) <= 7
+            && Math.abs(Number(l.valor) - Number(d.valor)) <= Math.max(0.01, Number(l.valor) * 0.01))
+          .sort((x: any, y: any) => Math.abs(Number(x.valor) - Number(d.valor)) - Math.abs(Number(y.valor) - Number(d.valor)))[0];
+        if (!prev) continue;
+        usadosU.add(prev.id);
+        const k = (ks || []).find((c: any) => c.id === prev.cartao_id);
+        pares.push({ despesa: { id: d.id, data: d.data, descricao: d.descricao, valor: Number(d.valor), ext_id: d.ext_id, conta_id: d.conta_id },
+          fatura: { id: prev.id, data: prev.data, valor: Number(prev.valor), cartao: k?.nome, pago: prev.pago }, bloqueado: travado(d) || travado(prev) });
+      }
+      if (body.simular) return json({ pares });
+      let feitos = 0;
+      for (const p of pares.filter(p => !p.bloqueado)) {
+        const d = p.despesa;
+        const { error: e1 } = await admin.from('lancamentos').update({ ext_id: d.ext_id, pago: true, conciliado: true, data: d.data, valor: d.valor, conta_id: d.conta_id, observacao: 'Open Finance' }).eq('id', p.fatura.id).eq('user_id', userId);
+        if (e1) throw e1;
+        const { error: e2 } = await admin.from('lancamentos').delete().eq('id', d.id).eq('user_id', userId);
+        if (e2) throw e2;
+        feitos++;
+      }
+      await atualizarPrevisoesFaturas(admin, userId, prefs);
+      return json({ ok: true, unificados: feitos, pares });
+    } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
+  }
+
   if (body.acao === 'faturas') {
     try {
       const { data: pr } = await admin.from('preferencias').select('dados').eq('user_id', userId).limit(1);
@@ -691,11 +733,25 @@ Deno.serve(async (req) => {
         linha.conta_id = v.conta_id;
         linha.tipo = entrada ? 'receita' : 'despesa';
         // pagamento de fatura de cartão
-        if (!entrada && /fatura|cart[aã]o|cartao|pgto cc|pag cc|card/i.test(desc) && cartoesDaConta.length) {
-          let alvo = cartoesDaConta.length === 1 ? cartoesDaConta[0] : null;
-          if (!alvo) alvo = cartoesDaConta.find((c: any) => semAcento(desc).includes(semAcento(c.nome))) || null;
-          // paga a última fatura já fechada na data do pagamento
-          if (alvo) { linha = { ...linha, tipo: 'pagamento_fatura', cartao_id: alvo.id, fatura_mes: addMeses(faturaYM(alvo, data), -1) + '-01', descricao: `Pagamento cartão ${alvo.nome}` }; }
+        // 1º pelo valor: débito igual ao de uma fatura prevista de cartão desta conta (até 7 dias do vencimento).
+        //    Pega boleto ("PAGTO ELETRON COBRANCA - BRADESCARD") e Pix para a operadora, que não dizem "fatura".
+        // 2º pelo texto (palavra inteira: "card" não pode pegar "Ricardo"), com o nome do cartão quando há mais de um.
+        let prevFatura: any = null;
+        if (!entrada && cartoesDaConta.length) {
+          const ids = new Set(cartoesDaConta.map((c: any) => c.id));
+          prevFatura = existentes.filter(l => !usados.has(l.id) && l.tipo === 'pagamento_fatura' && ids.has(l.cartao_id)
+              && !String(l.ext_id || '').startsWith('pluggy:') && Math.abs(difDias(l.data, data)) <= 7
+              && Math.abs(Number(l.valor) - valor) <= Math.max(0.01, Number(l.valor) * 0.01))
+            .sort((x, y) => Math.abs(Number(x.valor) - valor) - Math.abs(Number(y.valor) - valor) || Math.abs(difDias(x.data, data)) - Math.abs(difDias(y.data, data)))[0] || null;
+          let alvo = prevFatura ? cartoesDaConta.find((c: any) => c.id === prevFatura.cartao_id) : null;
+          if (!alvo && /\bfatura\b|\bcart[aã]o\b|\bcartao\b|pgto cc|pag cc|\bcard\b|bradescard|itaucard/i.test(desc)) {
+            alvo = cartoesDaConta.length === 1 ? cartoesDaConta[0] : (cartoesDaConta.find((c: any) => semAcento(desc).includes(semAcento(c.nome))) || null);
+          }
+          // paga a fatura prevista que casou ou, sem ela, a última já fechada na data do pagamento
+          if (alvo) {
+            const fm = prevFatura?.fatura_mes || (addMeses(faturaYM(alvo, data), -1) + '-01');
+            linha = { ...linha, tipo: 'pagamento_fatura', cartao_id: alvo.id, fatura_mes: fm, descricao: `Pagamento cartão ${alvo.nome}` };
+          }
         }
         if (linha.tipo !== 'pagamento_fatura') {
           const { cat, regra } = categorizar(desc, linha.tipo, t.category);
@@ -703,11 +759,14 @@ Deno.serve(async (req) => {
         }
         if (pendente) linha.pago = false;
         // conciliação: lançamento previsto (ex.: conta fixa) na mesma conta, mesmo valor, até 5 dias de diferença
-        const parFatura = linha.tipo === 'pagamento_fatura' ? existentes.find(l => !usados.has(l.id) && l.tipo === 'pagamento_fatura' && !l.pago
-          && l.cartao_id === linha.cartao_id && (l.fatura_mes || '').slice(0, 7) === linha.fatura_mes.slice(0, 7) && !String(l.ext_id || '').startsWith('pluggy:')) : null;
+        // a previsão pode já ter sido marcada como paga à mão: mesmo assim é ela que recebe o débito do banco
+        const parFatura = linha.tipo === 'pagamento_fatura' ? (prevFatura && prevFatura.cartao_id === linha.cartao_id ? prevFatura
+          : existentes.find(l => !usados.has(l.id) && l.tipo === 'pagamento_fatura'
+          && l.cartao_id === linha.cartao_id && (l.fatura_mes || '').slice(0, 7) === linha.fatura_mes.slice(0, 7) && !String(l.ext_id || '').startsWith('pluggy:'))) : null;
         if (parFatura) {
           usados.add(parFatura.id);
-          atualizar.push([parFatura.id, { ext_id: ext, pago: true, conciliado: true, data, valor, conta_id: v.conta_id }]);
+          atualizar.push([parFatura.id, { ext_id: ext, pago: true, conciliado: true, data, valor, conta_id: v.conta_id,
+            observacao: parFatura.observacao === OBS_PREV ? 'Open Finance' : (parFatura.observacao || 'Open Finance') }]);
           exec.conciliados++; continue;
         }
         const par = existentes

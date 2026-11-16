@@ -88,7 +88,11 @@ Para conferir: `select jobname, schedule from cron.job;` no SQL Editor.
 3. **Lançamento já trazido:** cada lançamento guarda `ext_id = pluggy:<id>`. Se o `ext_id` já existe, não entra de novo.
 4. **Conta bancária:**
    - só entram transações confirmadas;
-   - um débito com "fatura" ou "cartão" na descrição vira pagamento de fatura do cartão ligado à conta.
+   - **pagamento de fatura**, reconhecido de duas formas:
+     - **pelo valor:** um débito igual ao de uma fatura prevista de um cartão ligado à conta (diferença de até 1%, até 7 dias do vencimento) vira o pagamento dessa fatura. Pega boleto ("PAGTO ELETRON COBRANCA - BRADESCARD") e Pix para a operadora, que não dizem "fatura";
+     - **pelo texto:** "fatura", "cartão", "card" (palavra inteira, para não pegar "Ricardo"), "Bradescard" ou "Itaucard", com o nome do cartão quando há mais de um ligado à conta;
+   - o pagamento reconhecido ocupa o lugar da previsão da fatura, mesmo que ela já tenha sido marcada como paga à mão.
+   - A ação `unificar_faturas` (com `simular`) junta débitos que entraram como despesa antes dessa regra com a previsão da fatura correspondente.
 5. **Cartão:**
    - compras pendentes entram com a observação "Open Finance (em aberto)", para a fatura atual ficar certa;
    - quando a Pluggy confirma, a observação muda;
