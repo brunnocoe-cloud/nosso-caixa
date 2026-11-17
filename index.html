@@ -1193,11 +1193,11 @@ async function recarregarERender(tabelas) {
   render();
 }
 
-// categorias iniciais (mesma estrutura usada pela família no Meu Dinheiro)
+// categorias iniciais de uma instalação nova (genéricas: nada de nomes de pessoas no código público)
 const CATEGORIAS_INICIAIS = {
-  despesa: ['Aniversário Alice', 'Automóvel', 'Bem Estar', 'Educação', 'Empregados', 'Empréstimos', 'Energia Elétrica', 'Familiares Diversas', 'Festas',
+  despesa: ['Automóvel', 'Bem Estar', 'Educação', 'Empregados', 'Empréstimos', 'Energia Elétrica', 'Familiares Diversas', 'Festas',
     'Financiamento imobiliário', 'Fundo de Reserva', 'Impostos e Tarifas', ['Investimentos', ['Custódia', 'Custos operacionais', 'IOF', 'IR', 'Perdas']],
-    'Lazer', 'Moradia', 'Outras Despesas', 'Pagamento Financiamento de Dívidas', ['Pessoais', ['Alice', 'Bruno', 'Iraci', 'Pedro', 'Rúbia']],
+    'Lazer', 'Moradia', 'Outras Despesas', 'Pagamento Financiamento de Dívidas', 'Pessoais',
     'Presentes', 'Previdência', 'Restaurantes/Lanches', 'Saúde', 'Seguros', 'Supérfluo', 'Supermercado', 'Telefonia', 'Transporte', 'Utilidades Domésticas', 'Vestuário'],
   receita: ['Aluguel', ['Investimentos', ['Bonificação', 'Dividendos', 'JSCP', 'Juros', 'Proventos de ações', 'Proventos de fundos', 'Rendimentos']],
     'Lucros', 'Outras Receitas', 'Pró-labore', 'Salário'],
@@ -2357,7 +2357,7 @@ function vConfig() {
       <div class="grp-h" style="padding:12px 16px;color:var(--muted);font-weight:500">Outros recursos</div>
       ${linha('cartoes', 'cartao', 'Cartões de crédito', 'Utilizar o módulo de cartões de crédito.')}` : ''}
   ${aba === 'geral' ? `<div class="card-b" style="padding-top:16px">
-      <div class="f"><label for="quem">Quem usa este aparelho (titular padrão nos lançamentos)</label><input id="quem" list="dlQuem" placeholder="Ex.: Bruno Roberto Lopes Coelho" value="${esc(lsGet('nc_quem') || '')}"><datalist id="dlQuem">${pessoas.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
+      <div class="f"><label for="quem">Quem usa este aparelho (titular padrão nos lançamentos)</label><input id="quem" list="dlQuem" placeholder="Ex.: Maria da Silva" value="${esc(lsGet('nc_quem') || '')}"><datalist id="dlQuem">${pessoas.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
       <div class="f"><label>Situação padrão de um novo lançamento</label><select id="padraoPago"><option value="1" ${lsGet('nc_padrao_pago') !== '0' ? 'selected' : ''}>Confirmado (já pago/recebido)</option><option value="0" ${lsGet('nc_padrao_pago') === '0' ? 'selected' : ''}>Pendente</option></select></div>
       <div class="f"><label>Aparência</label><select id="tema">${[['', 'Tema do sistema'], ['light', 'Tema claro'], ['dark', 'Tema escuro']].map(([k, n]) => `<option value="${k}" ${(lsGet('nc_tema') || '') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
       <div class="f"><label>Menu lateral no computador</label><select id="menuFixo"><option value="1" ${lsGet('nc_menu_fixo') !== '0' ? 'selected' : ''}>Sempre visível</option><option value="0" ${lsGet('nc_menu_fixo') === '0' ? 'selected' : ''}>Recolhido</option></select></div>
@@ -3008,7 +3008,7 @@ function formCartao(c = null) {
       <div class="fr"><div class="f"><label class="req">Dia do fechamento</label><input type="number" name="dia_fechamento" min="1" max="31" value="${c?.dia_fechamento || ''}" required></div>
       <div class="f"><label class="req">Dia do vencimento</label><input type="number" name="dia_vencimento" min="1" max="31" value="${c?.dia_vencimento || ''}" required></div>${corInput(c?.cor || PALETA[(S.cartoes.length + 4) % PALETA.length])}</div>
       <div class="f"><label>Conta para pagamento da fatura</label><select name="conta_id"><option value="">—</option>${S.contas.map(x => `<option value="${x.id}" ${c?.conta_id === x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>
-      <div class="f"><label>Titulares (cartão principal e adicionais, separados por vírgula)</label><input name="titulares" value="${esc((c?.titulares || []).join(', ') || (c ? '' : (lsGet('nc_quem') || '')))}" placeholder="Ex.: Bruno Roberto Lopes Coelho, Rúbia Moreira Barbosa Coelho"></div>
+      <div class="f"><label>Titulares (cartão principal e adicionais, separados por vírgula)</label><input name="titulares" value="${esc((c?.titulares || []).join(', ') || (c ? '' : (lsGet('nc_quem') || '')))}" placeholder="Ex.: Maria da Silva, João da Silva"></div>
       <div class="opt-row" style="padding:10px 0"><div class="grow"><b>Cartão ativo</b><div class="s">Cartões inativos somem das listas, mas mantêm o histórico.</div></div>${swHTML('ativo', c ? !c.arquivado : true)}</div>
       <p class="muted" style="font-size:12px">Compras feitas no dia do fechamento ou depois entram na fatura seguinte.</p>`,
     extra: c ? `<button type="button" class="btn danger" id="btnDel">Excluir</button>` : '',
@@ -3906,7 +3906,9 @@ function blocosDiarios(itens, linha, valorDe, acumInicial, rotuloIni, desc = fal
 const limpRegrasCfg = () => S.prefs?.limpeza_regras || {};
 const limpRG = () => (limpRegrasCfg().rg || []).map(([p, c, loja]) => [new RegExp(p, 'i'), c, loja]);
 const LIMPEZA_DESDE = '2026-01-01';
-const LIMPEZA_ESCOPO = ['outras despesas', 'pessoais', 'familiares diversas', 'empregados', 'aniversario alice'];
+// categorias-mãe que a limpeza revê; as que têm nome de pessoa vêm do banco (limpeza_regras.escopo, com o destino em limpeza_regras.destino)
+const LIMPEZA_ESCOPO_BASE = ['outras despesas', 'pessoais', 'familiares diversas', 'empregados'];
+const limpEscopo = () => [...LIMPEZA_ESCOPO_BASE, ...Object.keys(limpRegrasCfg().destino || {}).map(semAcento)];
 const LIMPEZA_SUPER = /^(sup\.?\s*bh|supermercado\s*bh|supermercado|super\s*nosso|supernosso)(\s+em casa)?$/i;
 // regras automáticas criadas ao aplicar: limpRegrasCfg().automaticas = [descrição, palavras, categoria]
 const PREVIA = { on: false, mudancas: 0 };
@@ -3920,7 +3922,7 @@ function limpSugestao(catAtual, desc) {
   if (a) return a[1];
   if (catAtual === 'empregados') return 'Empregados';
   if (catAtual === 'familiares diversas') return 'Familiares Diversas';
-  if (catAtual === 'aniversario alice') return 'Festas';
+  const dest = Object.entries(limpRegrasCfg().destino || {}).find(([k]) => semAcento(k) === catAtual); if (dest) return dest[1];
   return 'Outras despesas';
 }
 // plano: [{ l, de (nome atual), para (nome novo) }] para as despesas de 2026 em diante
@@ -3931,7 +3933,7 @@ function limpezaPlano() {
     const c = limpCat(l.categoria_id), r = limpRaiz(l.categoria_id);
     const raiz = semAcento(r?.nome || ''), desc = limpNorm(l.descricao);
     let para = null;
-    if (!l.categoria_id || LIMPEZA_ESCOPO.includes(raiz)) para = limpSugestao(raiz, desc);
+    if (!l.categoria_id || limpEscopo().includes(raiz)) para = limpSugestao(raiz, desc);
     else if (LIMPEZA_SUPER.test(desc)) para = 'Supermercado';
     if (!para || para === 'Fora do Raio-x') continue;
     // já está na categoria-mãe certa (sem ser subcategoria de pessoa): não muda

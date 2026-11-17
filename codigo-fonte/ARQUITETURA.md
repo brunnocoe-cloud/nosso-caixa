@@ -159,7 +159,7 @@ Ficam numa única linha de `preferencias`, coluna `dados` (JSON). O site lê no 
 
 Módulo temporário `src/13-limpeza.js`, aplicado em 16/11/2026 (1.142 lançamentos de 2026 recategorizados, total em reais igual antes e depois).
 
-- **Regras:** ficam em `preferencias.dados.limpeza_regras`, no banco, e não no código, porque têm nomes de lojas e pessoas. O repositório é público.
+- **Regras:** ficam em `preferencias.dados.limpeza_regras`, no banco, e não no código, porque têm nomes de lojas e pessoas. O repositório é público. Chaves: `rg` (padrão, categoria, se é loja), `pessoas` (subcategorias de Pessoais a inativar), `automaticas` (regras de preenchimento criadas ao aplicar) e `destino` (categoria-mãe com nome de pessoa que também é revista → para onde vai).
 - **Prévia:** envolve `carregar`, `render` e `sb.from` para mostrar o resultado sem gravar nada.
 - **Aplicar:** grava as categorias, cria categorias e regras e inativa as subcategorias de pessoas. Guarda a situação anterior em `preferencias.dados.limpeza_2026`.
 - **Desfazer:** botão em Configurações › Geral. Volta as categorias, apaga as regras e categorias criadas e reativa as pessoas. Também desfaz correções feitas depois da limpeza.

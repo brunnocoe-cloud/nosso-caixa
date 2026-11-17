@@ -360,7 +360,7 @@ function formCartao(c = null) {
       <div class="fr"><div class="f"><label class="req">Dia do fechamento</label><input type="number" name="dia_fechamento" min="1" max="31" value="${c?.dia_fechamento || ''}" required></div>
       <div class="f"><label class="req">Dia do vencimento</label><input type="number" name="dia_vencimento" min="1" max="31" value="${c?.dia_vencimento || ''}" required></div>${corInput(c?.cor || PALETA[(S.cartoes.length + 4) % PALETA.length])}</div>
       <div class="f"><label>Conta para pagamento da fatura</label><select name="conta_id"><option value="">—</option>${S.contas.map(x => `<option value="${x.id}" ${c?.conta_id === x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>
-      <div class="f"><label>Titulares (cartão principal e adicionais, separados por vírgula)</label><input name="titulares" value="${esc((c?.titulares || []).join(', ') || (c ? '' : (lsGet('nc_quem') || '')))}" placeholder="Ex.: Bruno Roberto Lopes Coelho, Rúbia Moreira Barbosa Coelho"></div>
+      <div class="f"><label>Titulares (cartão principal e adicionais, separados por vírgula)</label><input name="titulares" value="${esc((c?.titulares || []).join(', ') || (c ? '' : (lsGet('nc_quem') || '')))}" placeholder="Ex.: Maria da Silva, João da Silva"></div>
       <div class="opt-row" style="padding:10px 0"><div class="grow"><b>Cartão ativo</b><div class="s">Cartões inativos somem das listas, mas mantêm o histórico.</div></div>${swHTML('ativo', c ? !c.arquivado : true)}</div>
       <p class="muted" style="font-size:12px">Compras feitas no dia do fechamento ou depois entram na fatura seguinte.</p>`,
     extra: c ? `<button type="button" class="btn danger" id="btnDel">Excluir</button>` : '',

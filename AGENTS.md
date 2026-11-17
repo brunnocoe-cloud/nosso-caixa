@@ -43,14 +43,15 @@ Configuração que **só existe no Supabase** (não está no repositório): o co
 
 ## Regras obrigatórias
 
-1. **Nada pessoal no repositório público.** Nada de nomes de pessoas, valores, extratos, levantamentos, planilhas, prints com dados ou regras com nomes de lojas e pessoas. Isso fica no banco (`preferencias`) ou na pasta privada `Documents\Nosso Caixa\privado` do computador do dono. Antes de cada commit: `git diff --cached` e procure nomes e valores. Em 16/11/2026 um commit vazou dados e o histórico teve de ser reescrito.
+1. **Nada pessoal no repositório público.** Nada de nomes de pessoas (nem em exemplos, nomes de categoria ou testes), valores, extratos, levantamentos, planilhas, prints com dados ou regras com nomes de lojas e pessoas. Isso fica no banco (`preferencias`) ou na pasta privada `Documents\Nosso Caixa\privado` do computador do dono. Antes de cada commit: `git diff --cached` e procure nomes e valores. Em 16/11/2026 um commit vazou dados e o histórico teve de ser reescrito.
 2. **Nenhuma senha, chave ou token** no código, em commits ou em mensagens. A chave do Supabase no site é a pública; as secretas ficam em `privado.config`. Agente não digita senha: o dono faz login.
 3. **Não remova o gatilho `limitar_um_usuario`.** A chave da Pluggy e o bot valem para o banco inteiro.
 4. **Não revogue nem recrie as conexões da Pluggy / Meu Pluggy** sem pedido explícito: a sincronização depende delas.
 5. **Mudanças em dados reais:** primeiro simule (`"simular": true` na função, prévia no site), mostre os números e espere a confirmação do dono. Totais em reais não podem mudar numa recategorização.
 6. **Período fechado:** não altere lançamentos com data até a data de fechamento.
 7. **Preferências:** grave sempre por `salvarPrefs`/`gravarPrefs` (relê o banco e junta por chave). Nunca faça `update({ dados: S.prefs })` direto.
-8. Siga o `ARQUITETURA.md` quando ele e o código concordarem; quando discordarem, vale o código, e corrija o documento no mesmo commit.
+8. **Lógica em dois lugares:** a categorização automática (regras de preenchimento, histórico, ordem das camadas) e a regra do período fechado existem no site (`src/01-core.js`: `regraPara`, `bloqueado`) **e** na função (`index.ts`: `regraPara`, `categorizar`, `criarTrava`). Mudou um, mude o outro no mesmo commit e teste os dois.
+9. Siga o `ARQUITETURA.md` quando ele e o código concordarem; quando discordarem, vale o código, e corrija o documento no mesmo commit.
 
 ## Trabalho pendente (17/11/2026)
 

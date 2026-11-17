@@ -397,11 +397,11 @@ async function recarregarERender(tabelas) {
   render();
 }
 
-// categorias iniciais (mesma estrutura usada pela família no Meu Dinheiro)
+// categorias iniciais de uma instalação nova (genéricas: nada de nomes de pessoas no código público)
 const CATEGORIAS_INICIAIS = {
-  despesa: ['Aniversário Alice', 'Automóvel', 'Bem Estar', 'Educação', 'Empregados', 'Empréstimos', 'Energia Elétrica', 'Familiares Diversas', 'Festas',
+  despesa: ['Automóvel', 'Bem Estar', 'Educação', 'Empregados', 'Empréstimos', 'Energia Elétrica', 'Familiares Diversas', 'Festas',
     'Financiamento imobiliário', 'Fundo de Reserva', 'Impostos e Tarifas', ['Investimentos', ['Custódia', 'Custos operacionais', 'IOF', 'IR', 'Perdas']],
-    'Lazer', 'Moradia', 'Outras Despesas', 'Pagamento Financiamento de Dívidas', ['Pessoais', ['Alice', 'Bruno', 'Iraci', 'Pedro', 'Rúbia']],
+    'Lazer', 'Moradia', 'Outras Despesas', 'Pagamento Financiamento de Dívidas', 'Pessoais',
     'Presentes', 'Previdência', 'Restaurantes/Lanches', 'Saúde', 'Seguros', 'Supérfluo', 'Supermercado', 'Telefonia', 'Transporte', 'Utilidades Domésticas', 'Vestuário'],
   receita: ['Aluguel', ['Investimentos', ['Bonificação', 'Dividendos', 'JSCP', 'Juros', 'Proventos de ações', 'Proventos de fundos', 'Rendimentos']],
     'Lucros', 'Outras Receitas', 'Pró-labore', 'Salário'],

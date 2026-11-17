@@ -49,7 +49,7 @@ Convenção desta lista: nomes de telas, botões e opções aparecem em **negrit
   - Comparação entre Períodos
   - Lançamentos por Categoria
 - **Cadastros**:
-  - **Categorias**: com subcategorias (Pessoais/Alice, Investimentos/IR…) e opção de inativar.
+  - **Categorias**: com subcategorias (Investimentos/IR, Investimentos/IOF…) e opção de inativar.
   - **Contas**: por tipo, com **Considerar saldo** e contas inativas.
   - **Tags**: etiquetas livres para agrupar lançamentos.
   - **Documentos**: anexos guardados no Supabase, até 10 MB por arquivo.

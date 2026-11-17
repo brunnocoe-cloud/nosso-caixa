@@ -8,7 +8,9 @@
 const limpRegrasCfg = () => S.prefs?.limpeza_regras || {};
 const limpRG = () => (limpRegrasCfg().rg || []).map(([p, c, loja]) => [new RegExp(p, 'i'), c, loja]);
 const LIMPEZA_DESDE = '2026-01-01';
-const LIMPEZA_ESCOPO = ['outras despesas', 'pessoais', 'familiares diversas', 'empregados', 'aniversario alice'];
+// categorias-mãe que a limpeza revê; as que têm nome de pessoa vêm do banco (limpeza_regras.escopo, com o destino em limpeza_regras.destino)
+const LIMPEZA_ESCOPO_BASE = ['outras despesas', 'pessoais', 'familiares diversas', 'empregados'];
+const limpEscopo = () => [...LIMPEZA_ESCOPO_BASE, ...Object.keys(limpRegrasCfg().destino || {}).map(semAcento)];
 const LIMPEZA_SUPER = /^(sup\.?\s*bh|supermercado\s*bh|supermercado|super\s*nosso|supernosso)(\s+em casa)?$/i;
 // regras automáticas criadas ao aplicar: limpRegrasCfg().automaticas = [descrição, palavras, categoria]
 const PREVIA = { on: false, mudancas: 0 };
@@ -22,7 +24,7 @@ function limpSugestao(catAtual, desc) {
   if (a) return a[1];
   if (catAtual === 'empregados') return 'Empregados';
   if (catAtual === 'familiares diversas') return 'Familiares Diversas';
-  if (catAtual === 'aniversario alice') return 'Festas';
+  const dest = Object.entries(limpRegrasCfg().destino || {}).find(([k]) => semAcento(k) === catAtual); if (dest) return dest[1];
   return 'Outras despesas';
 }
 // plano: [{ l, de (nome atual), para (nome novo) }] para as despesas de 2026 em diante
@@ -33,7 +35,7 @@ function limpezaPlano() {
     const c = limpCat(l.categoria_id), r = limpRaiz(l.categoria_id);
     const raiz = semAcento(r?.nome || ''), desc = limpNorm(l.descricao);
     let para = null;
-    if (!l.categoria_id || LIMPEZA_ESCOPO.includes(raiz)) para = limpSugestao(raiz, desc);
+    if (!l.categoria_id || limpEscopo().includes(raiz)) para = limpSugestao(raiz, desc);
     else if (LIMPEZA_SUPER.test(desc)) para = 'Supermercado';
     if (!para || para === 'Fora do Raio-x') continue;
     // já está na categoria-mãe certa (sem ser subcategoria de pessoa): não muda

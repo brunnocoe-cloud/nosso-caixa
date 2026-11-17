@@ -52,9 +52,9 @@ with sync_playwright() as p:
     pg.wait_for_selector('#fLogin')
     pg.fill('#lEmail', 'casal@x.com'); pg.fill('#lSenha', 'certa'); pg.click('#fLogin button[type=submit]')
     pg.wait_for_selector('#view')
-    ok(pg.evaluate('S.categorias.length') == 52, 'categorias do Meu Dinheiro criadas (%d)' % pg.evaluate('S.categorias.length'))
-    ok(pg.evaluate("S.categorias.filter(c=>c.parent_id).length") == 17, 'subcategorias criadas')
-    ok(pg.evaluate("nomeCat(S.categorias.find(c=>c.nome==='Alice'&&c.parent_id).id)") == 'Pessoais/Alice', 'nome hierárquico Pessoais/Alice')
+    ok(pg.evaluate('S.categorias.length') == 46, 'categorias iniciais criadas (%d)' % pg.evaluate('S.categorias.length'))
+    ok(pg.evaluate("S.categorias.filter(c=>c.parent_id).length") == 12, 'subcategorias criadas')
+    ok(pg.evaluate("nomeCat(S.categorias.find(c=>c.nome==='IOF'&&c.parent_id).id)") == 'Investimentos/IOF', 'nome hierárquico Investimentos/IOF')
     M = '.overlay form '
     def salvar(): pg.click(M + 'button[type=submit]'); pg.wait_for_selector('.overlay', state='detached', timeout=5000)
     def acao(js): pg.evaluate(js); pg.wait_for_timeout(150)
@@ -109,7 +109,7 @@ with sync_playwright() as p:
     # lançamento detalhado
     acao("formLanc(null,{tipo:'detalhado'})")
     pg.fill(M + '[data-det-v="0"]', '50'); pg.dispatch_event(M + '[data-det-v="0"]', 'input'); pg.select_option(M + '[data-det-cat="0"]', label='Supermercado'); pg.dispatch_event(M + '[data-det-cat="0"]', 'change')
-    pg.fill(M + '[data-det-v="1"]', '30'); pg.dispatch_event(M + '[data-det-v="1"]', 'input'); pg.select_option(M + '[data-det-cat="1"]', label='    ↳ Alice'); pg.dispatch_event(M + '[data-det-cat="1"]', 'change')
+    pg.fill(M + '[data-det-v="1"]', '30'); pg.dispatch_event(M + '[data-det-v="1"]', 'input'); pg.select_option(M + '[data-det-cat="1"]', label='    ↳ IOF'); pg.dispatch_event(M + '[data-det-cat="1"]', 'change')
     ok(pg.input_value(M + '[name=valor]') == '80,00', 'detalhado soma 80,00')
     pg.fill(M + '[name=descricao]', 'Compras Carrefour'); salvar()
     ok(pg.evaluate("S.lancamentos.filter(l=>l.serie==='detalhado').length") == 2, 'detalhado gera 2 lançamentos')
