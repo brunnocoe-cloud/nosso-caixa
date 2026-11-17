@@ -9,6 +9,7 @@ on:
     paths:
       - 'codigo-fonte/supabase/functions/pluggy-sync/**'
       - 'codigo-fonte/supabase/config.toml'
+      - '.github/workflows/publicar-funcao.yml'
   workflow_dispatch:
 
 concurrency:
@@ -37,7 +38,7 @@ jobs:
           version: latest
       - name: Publicar (Verificar JWT desligado)
         working-directory: codigo-fonte
-        run: supabase functions deploy pluggy-sync --project-ref "$PROJETO" --no-verify-jwt --use-api
+        run: supabase functions deploy pluggy-sync --project-ref "$PROJETO" --no-verify-jwt --use-api --yes
       - name: Conferir que a função responde
         run: |
           # sem login, a função tem de recusar com 401 (e não 404 nem 500)
