@@ -41,7 +41,10 @@ jobs:
         run: supabase functions deploy pluggy-sync --project-ref "$PROJETO" --no-verify-jwt --use-api --yes
       - name: Conferir que a função responde
         run: |
-          # sem login, a função tem de recusar com 401 (e não 404 nem 500)
-          codigo=$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://$PROJETO.supabase.co/functions/v1/pluggy-sync" -H 'content-type: application/json' -d '{"acao":"status"}')
+          # sem login, a PRÓPRIA função tem de recusar (401 com a mensagem dela).
+          # Se o 401 vier do Supabase ("Missing authorization header"), o Verificar JWT ligou e o agendamento e o bot param.
+          codigo=$(curl -s -o resposta.txt -w '%{http_code}' -X POST "https://$PROJETO.supabase.co/functions/v1/pluggy-sync" -H 'content-type: application/json' -d '{"acao":"status"}')
           echo "Resposta sem login: $codigo"
           [ "$codigo" = "401" ] || { echo "::error::Esperava 401, veio $codigo"; exit 1; }
+          grep -q 'Nosso Caixa' resposta.txt || { echo "::error::O 401 não veio da função: o Verificar JWT parece ligado"; exit 1; }
+          echo "Verificar JWT desligado: ok"
