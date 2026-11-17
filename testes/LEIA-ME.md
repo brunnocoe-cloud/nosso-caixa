@@ -20,6 +20,7 @@ python3 teste_cp.py    # conta principal
 python3 teste_of.py    # tela Open Finance e Telegram
 python3 teste_per.py   # filtro Ver por
 python3 teste_prefs.py # dois aparelhos salvando preferências ao mesmo tempo
+python3 teste_regras.py # regra mais específica vence; histórico sem previsões futuras
 ```
 
 Cada um imprime `OK` ou `FALHA` por item e termina com `ERROS: nenhum` quando tudo passa. As capturas de tela vão para `capturas/` e `v3/`, fora do Git.

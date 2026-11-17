@@ -110,8 +110,8 @@ Para conferir: `select jobname, schedule from cron.job;` no SQL Editor.
    - **Cartão:** mesmo cartão e mesmo valor, na mesma fatura ou até 4 dias de diferença. Isso cobre parcelas e despesas fixas trazidas do Meu Dinheiro.
    - **Pagamento de fatura:** liga à previsão daquela fatura.
 8. **Categoria**, nesta ordem:
-   1. regra de preenchimento, em três camadas: descrição exata; depois qualquer palavra-chave contida na descrição; depois a descrição da regra contida na descrição (só se tiver 4 letras ou mais). Dentro de cada camada vence a primeira regra encontrada, e a ordem não é definida (a função não ordena; o site ordena por `id`, que é aleatório). Os dois podem escolher regras diferentes;
-   2. categoria usada antes na mesma descrição, entre os 3.000 lançamentos categorizados de data mais recente, inclusive previsões futuras;
+   1. regra de preenchimento (`regraPara`, igual no site e na função): vence a descrição exata; depois a **palavra-chave mais longa** contida na descrição; depois a descrição da regra (4 letras ou mais) mais longa contida na descrição. Empate: menor `id`. A ordem em que as regras chegam não muda o resultado;
+   2. categoria usada antes na mesma descrição, entre os 3.000 lançamentos categorizados mais recentes **até hoje** (previsões futuras não ensinam). Na importação de arquivo do site vale o mesmo: o mais recente até hoje;
    3. tradução da categoria da Pluggy (procura por nome, sem olhar se a categoria está ativa).
 
    A regra vence a correção manual: se alguém muda a categoria de um lançamento à mão, o próximo lançamento igual volta a seguir a regra.
@@ -169,12 +169,10 @@ Módulo temporário `src/13-limpeza.js`, aplicado em 16/11/2026 (1.142 lançamen
 
 ### 6.1 Defeitos conhecidos (abertos em 17/11/2026)
 
-Corrigidos em 17/11/2026: texto do banco perdido na fatura pelo valor; Pix casando com previsão já paga; duplicados em sincronizações simultâneas; preferências apagadas por outro aparelho.
+Corrigidos em 17/11/2026: texto do banco perdido na fatura pelo valor; Pix casando com previsão já paga; duplicados em sincronizações simultâneas; preferências apagadas por outro aparelho; ordem das regras indefinida e diferente entre site e função; histórico aprendendo com previsões futuras.
 
 
 - **Fatura pelo valor ainda pode pegar um Pix comum** de valor parecido com uma previsão **em aberto** (§5.3 item 4). Desde 17/11 o texto do banco fica na observação, para conferir.
-- **Ordem das regras indefinida e diferente entre site e função** (§5.3 item 8).
-- **Histórico aprende com previsões futuras** (§5.3 item 8).
 - **A regra vence a correção manual** (§5.3 item 8).
 - **Estornos de cartão entram como receita.** Não há reconhecimento de transferência entre contas próprias.
 - **Sobra de até 1%:** quando o débito é um pouco menor que a previsão, a diferença vira nova previsão "a pagar".

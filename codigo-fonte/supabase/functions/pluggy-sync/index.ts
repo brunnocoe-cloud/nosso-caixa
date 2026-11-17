@@ -608,15 +608,29 @@ Deno.serve(async (req) => {
     }
     const comExt = new Set(existentes.map(l => l.ext_id).filter(Boolean));
     // histórico para aprender categoria pela descrição
-    const { data: hist } = await admin.from('lancamentos').select('descricao,tipo,categoria_id').eq('user_id', userId).not('categoria_id', 'is', null).order('data', { ascending: false }).limit(3000);
+    const { data: hist } = await admin.from('lancamentos').select('descricao,tipo,categoria_id').eq('user_id', userId).not('categoria_id', 'is', null).lte('data', hoje()).order('data', { ascending: false }).limit(3000); // previsões futuras não ensinam
     const aprendido = new Map<string, string>();
     for (const h of hist || []) { const k = h.tipo + '|' + semAcento(h.descricao); if (!aprendido.has(k)) aprendido.set(k, h.categoria_id); }
     const catPorNome = (nome: string, tipo: string) => (categorias || []).find((c: any) => c.tipo === tipo && semAcento(c.nome) === semAcento(nome))?.id || null;
+    // MESMA LÓGICA do site (01-core.js, regraPara): mudou aqui, mude lá.
+    // 1º descrição exata; 2º palavra-chave mais longa; 3º descrição da regra (4+ letras) mais longa; empate: menor id.
+    const notaRegra = (r: any, d: string): number[] | null => {
+      const rd = semAcento(r.descricao);
+      if (rd === d) return [3, rd.length];
+      const ps = String(r.palavras || '').split(/[,;\n]/).map(semAcento).filter((p: string) => p && d.includes(p));
+      if (ps.length) return [2, Math.max(...ps.map((p: string) => p.length))];
+      if (rd.length >= 4 && d.includes(rd)) return [1, rd.length];
+      return null;
+    };
     const regraPara = (desc: string, tipo: string) => {
-      const d = semAcento(desc); const rs = (regras || []).filter((r: any) => r.tipo === tipo);
-      return rs.find((r: any) => semAcento(r.descricao) === d)
-        || rs.find((r: any) => String(r.palavras || '').split(/[,;\n]/).map(semAcento).filter(Boolean).some((p: string) => d.includes(p)))
-        || rs.find((r: any) => semAcento(r.descricao).length >= 4 && d.includes(semAcento(r.descricao))) || null;
+      const d = semAcento(desc); if (!d) return null;
+      let melhor: any = null, nm: number[] | null = null;
+      for (const r of (regras || [])) {
+        if (r.tipo !== tipo) continue;
+        const n = notaRegra(r, d);
+        if (n && (!nm || n[0] > nm[0] || (n[0] === nm[0] && (n[1] > nm[1] || (n[1] === nm[1] && String(r.id) < String(melhor.id)))))) { melhor = r; nm = n; }
+      }
+      return melhor;
     };
     const categorizar = (desc: string, tipo: string, catPluggy: string) => {
       const r = regraPara(desc, tipo);

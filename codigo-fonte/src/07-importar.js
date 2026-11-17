@@ -62,12 +62,14 @@ function prepararLinhas(brutas) {
   const existentes = S.lancamentos.filter(l => k === 'cartao' ? l.cartao_id === id : (l.conta_id === id && !l.cartao_id));
   const chave = (d, v, ds) => `${d}|${r2(Math.abs(v))}|${semAcento(ds)}`;
   const jaTem = new Set(existentes.map(l => chave(l.data, l.valor, l.descricao)));
+  const hj = hoje();
   const exts = new Set(existentes.map(l => l.ext_id).filter(Boolean));
   S.imp.linhas = brutas.map(b => {
     let valor = S.imp.inverter ? -b.valor : b.valor;
     const tipo = valor < 0 ? 'despesa' : 'receita';
     const regra = regraPara(b.desc, tipo);
-    const ant = [...S.lancamentos].reverse().find(l => l.tipo === tipo && semAcento(l.descricao) === semAcento(b.desc) && l.categoria_id);
+    // histórico: o lançamento mais recente até hoje com a mesma descrição (previsões futuras não ensinam)
+    const ant = S.lancamentos.filter(l => l.tipo === tipo && l.categoria_id && l.data <= hj && semAcento(l.descricao) === semAcento(b.desc)).sort((x, y) => (x.data < y.data ? 1 : -1))[0];
     const dup = (b.ext && exts.has(b.ext)) || jaTem.has(chave(b.data, valor, b.desc));
     const pagto = k === 'cartao' && tipo === 'receita' && /pagamento|pgto|pag\b/i.test(b.desc);
     return { ...b, valor, tipo, cat: regra?.categoria_id || ant?.categoria_id || '', tags: regra?.tags || [], titular: regra?.titular || '', dup, sel: !dup && !pagto, obs: pagto ? 'Pagamento de fatura (desmarcado: registre pelo botão "Lançar pagamento")' : '' };

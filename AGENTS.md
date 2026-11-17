@@ -68,6 +68,6 @@ Retrato sem segredos (agendamentos, políticas RLS, gatilhos, índices, funçõe
 
 ## Trabalho pendente (17/11/2026)
 
-Ver ARQUITETURA §6.1. Já feito em 17/11: texto do banco guardado, regra mais segura da fatura pelo valor, `unificar_faturas` removida, índice único `lanc_user_ext_pluggy`, preferências sem perda. Falta: conferir o pagamento da Visa de 20/11/2026; arquivar os cartões antigos (o dono confirma quais); ordem fixa das regras e histórico sem previsões futuras; remover o módulo de limpeza depois da revisão de dezembro.
+Ver ARQUITETURA §6.1. Já feito em 17/11: texto do banco guardado, regra mais segura da fatura pelo valor, `unificar_faturas` removida, índice único `lanc_user_ext_pluggy`, preferências sem perda. Também em 17/11: ordem fixa das regras (igual no site e na função) e histórico sem previsões futuras. Falta: conferir o pagamento da Visa de 20/11/2026; decidir se a correção manual deve vencer a regra; estornos do cartão com a categoria da compra; reembolso de 17/06 em Saúde; remover o módulo de limpeza depois da revisão de dezembro (lembrete marcado para 05/01/2027).
 
 Migrações SQL de uso único ficam em `codigo-fonte/migracoes/`, com data no nome, e são rodadas à mão no SQL Editor.

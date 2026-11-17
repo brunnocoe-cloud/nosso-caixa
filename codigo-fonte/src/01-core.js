@@ -38,7 +38,8 @@ const lsGet = k => { try { return localStorage.getItem(k); } catch { return null
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 const lsJSON = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+// igual à função pluggy-sync (mesmo resultado nos dois lados)
+const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const corV = v => v < 0 ? 'neg' : v > 0 ? 'pos' : '';
 const vH = (v, cls = '') => `<span class="num v ${cls || corV(v)}">${fmtN(v)}</span>`;
 
@@ -305,14 +306,27 @@ function fechadoAte(l) {
 const bloqueado = l => { const f = fechadoAte(l); return f && l.data <= f ? f : null; };
 
 /* ---------------- regras de preenchimento ---------------- */
-function regraPara(desc, tipo) {
+// Qual regra vale para a descrição. MESMA LÓGICA da função pluggy-sync (index.ts, regraPara): mudou aqui, mude lá.
+// 1º descrição exata; 2º a palavra-chave mais longa contida na descrição; 3º a descrição da regra (4+ letras)
+// mais longa contida na descrição. Empate: menor id. Assim a escolha não depende da ordem em que as regras chegam.
+function notaRegra(r, d) {
+  const rd = semAcento(r.descricao);
+  if (rd === d) return [3, rd.length];
+  const ps = (r.palavras || '').split(/[,;\n]/).map(semAcento).filter(p => p && d.includes(p));
+  if (ps.length) return [2, Math.max(...ps.map(p => p.length))];
+  if (rd.length >= 4 && d.includes(rd)) return [1, rd.length];
+  return null;
+}
+function regraPara(desc, tipo, regras = S.regras) {
   const d = semAcento(desc);
   if (!d) return null;
-  const rs = S.regras.filter(r => r.tipo === tipo);
-  return rs.find(r => semAcento(r.descricao) === d)
-    || rs.find(r => (r.palavras || '').split(/[,;\n]/).map(semAcento).filter(Boolean).some(p => d.includes(p)))
-    || rs.find(r => semAcento(r.descricao).length >= 4 && d.includes(semAcento(r.descricao)))
-    || null;
+  let melhor = null, nm = null;
+  for (const r of regras) {
+    if (r.tipo !== tipo) continue;
+    const n = notaRegra(r, d);
+    if (n && (!nm || n[0] > nm[0] || (n[0] === nm[0] && (n[1] > nm[1] || (n[1] === nm[1] && String(r.id) < String(melhor.id)))))) { melhor = r; nm = n; }
+  }
+  return melhor;
 }
 
 /* ---------------- dados (Supabase) ---------------- */
