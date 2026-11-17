@@ -33,12 +33,15 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v4
-      - uses: supabase/setup-cli@v1
+      - uses: actions/setup-node@v4
         with:
-          version: latest
+          node-version: 22
       - name: Publicar (Verificar JWT desligado)
         working-directory: codigo-fonte
-        run: supabase functions deploy pluggy-sync --project-ref "$PROJETO" --no-verify-jwt --use-api --yes
+        # a CLI vem pelo npm (setup-cli com "latest" esbarrava no limite de consultas da API do GitHub)
+        run: |
+          npx --yes supabase@latest --version
+          npx --yes supabase@latest functions deploy pluggy-sync --project-ref "$PROJETO" --no-verify-jwt --use-api --yes
       - name: Conferir que a função responde
         run: |
           # sem login, a PRÓPRIA função tem de recusar (401 com a mensagem dela).
