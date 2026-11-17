@@ -1,0 +1,46 @@
+# Publica a Edge Function pluggy-sync no Supabase quando o código dela muda na main.
+# Precisa do segredo SUPABASE_ACCESS_TOKEN (Settings › Secrets and variables › Actions).
+# Sem o segredo, o job para com aviso e nada é publicado.
+name: Publicar função pluggy-sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'codigo-fonte/supabase/functions/pluggy-sync/**'
+      - 'codigo-fonte/supabase/config.toml'
+  workflow_dispatch:
+
+concurrency:
+  group: publicar-funcao
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJETO: cuhrhtkwfuwgsvsdrkng
+    steps:
+      - name: Conferir o segredo
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::Falta o segredo SUPABASE_ACCESS_TOKEN. Veja AGENTS.md, seção Publicação automática."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Publicar (Verificar JWT desligado)
+        working-directory: codigo-fonte
+        run: supabase functions deploy pluggy-sync --project-ref "$PROJETO" --no-verify-jwt --use-api
+      - name: Conferir que a função responde
+        run: |
+          # sem login, a função tem de recusar com 401 (e não 404 nem 500)
+          codigo=$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://$PROJETO.supabase.co/functions/v1/pluggy-sync" -H 'content-type: application/json' -d '{"acao":"status"}')
+          echo "Resposta sem login: $codigo"
+          [ "$codigo" = "401" ] || { echo "::error::Esperava 401, veio $codigo"; exit 1; }

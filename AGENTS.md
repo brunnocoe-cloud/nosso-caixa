@@ -41,6 +41,19 @@ Configuração que **só existe no Supabase** (não está no repositório): o co
 6. Se mudou o banco: rode o SQL novo no SQL Editor do Supabase. Mudança que não pode rodar duas vezes vai num arquivo de migração separado, não no `sql_v4_openfinance.sql` (que roda quantas vezes quiser e vai embutido no site).
 7. Ordem quando muda mais de uma parte: função → SQL → site, conferindo cada passo.
 
+## Publicação automática (GitHub Actions)
+
+- `.github/workflows/publicar-funcao.yml`: a cada push na `main` que mexe em `codigo-fonte/supabase/functions/pluggy-sync/` ou no `config.toml`, publica a função com `--no-verify-jwt` e confere que ela responde 401 sem login. Também pode ser disparado à mão (Actions › Publicar função › Run workflow).
+- `.github/workflows/rodar-migracao.yml`: só à mão. Informa o nome de um arquivo de `codigo-fonte/migracoes/` e digite `RODAR`. Roda o SQL pela API do Supabase.
+- Os dois precisam do segredo `SUPABASE_ACCESS_TOKEN` no repositório (Settings › Secrets and variables › Actions). Só o dono cria esse token (supabase.com › Account › Access Tokens); agente nenhum cria, vê ou digita o token.
+- **O repositório é público e os logs das Actions também.** Nunca imprima dados, resultados de consulta ou segredos nos workflows. A migração só informa se deu certo e quantas linhas voltaram.
+- Migração é mudança no banco de verdade: antes de rodar, mostre o SQL ao dono e espere a confirmação (regra 5). Consultas de conferência com resultado (como procurar duplicados) continuam no SQL Editor.
+- Sem o segredo, os workflows param com aviso e o caminho manual (painel do Supabase) continua valendo.
+
+## Estado que só existe no Supabase
+
+Retrato sem segredos (agendamentos, políticas RLS, gatilhos, índices, funções, colunas, extensões e os nomes das chaves do cofre) fica em `Documents\Nosso Caixa\privado\supabase-estado.json`, com a data em que foi tirado. Para refazer, rode no SQL Editor a consulta de `codigo-fonte/migracoes/consultas/retrato-supabase.sql` (só leitura).
+
 ## Regras obrigatórias
 
 1. **Nada pessoal no repositório público.** Nada de nomes de pessoas (nem em exemplos, nomes de categoria ou testes), valores, extratos, levantamentos, planilhas, prints com dados ou regras com nomes de lojas e pessoas. Isso fica no banco (`preferencias`) ou na pasta privada `Documents\Nosso Caixa\privado` do computador do dono. Antes de cada commit: `git diff --cached` e procure nomes e valores. Em 16/11/2026 um commit vazou dados e o histórico teve de ser reescrito.

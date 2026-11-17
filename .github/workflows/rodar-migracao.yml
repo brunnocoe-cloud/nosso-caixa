@@ -1,0 +1,42 @@
+# Roda UMA migração de codigo-fonte/migracoes/ no banco do Supabase. Só manual (botão "Run workflow").
+# Precisa do segredo SUPABASE_ACCESS_TOKEN. O repositório é público e o log também:
+# o resultado das consultas NÃO é impresso, só quantas linhas voltaram e se deu erro.
+name: Rodar migração SQL
+
+on:
+  workflow_dispatch:
+    inputs:
+      arquivo:
+        description: 'Nome do arquivo em codigo-fonte/migracoes/ (ex.: 2026-11-17-ext-id-unico.sql)'
+        required: true
+      confirmo:
+        description: 'Digite RODAR para confirmar'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  migrar:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJETO: cuhrhtkwfuwgsvsdrkng
+      ARQUIVO: ${{ inputs.arquivo }}
+      CONFIRMO: ${{ inputs.confirmo }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Conferir pedido
+        run: |
+          [ "$CONFIRMO" = "RODAR" ] || { echo "::error::Confirmação diferente de RODAR"; exit 1; }
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "::error::Falta o segredo SUPABASE_ACCESS_TOKEN"; exit 1; }
+          case "$ARQUIVO" in */*|*..*|'') echo "::error::Informe só o nome do arquivo"; exit 1;; esac
+          [ -f "codigo-fonte/migracoes/$ARQUIVO" ] || { echo "::error::Arquivo não encontrado em codigo-fonte/migracoes/"; exit 1; }
+      - name: Rodar
+        run: |
+          jq -Rs '{query: .}' "codigo-fonte/migracoes/$ARQUIVO" > corpo.json
+          codigo=$(curl -s -o resposta.json -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$PROJETO/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'content-type: application/json' --data @corpo.json)
+          echo "HTTP $codigo"
+          if [ "$codigo" -ge 300 ]; then echo "::error::A migração falhou (detalhe não impresso: o log é público). Rode no SQL Editor para ver o erro."; exit 1; fi
+          echo "Linhas devolvidas pela última consulta: $(jq 'if type=="array" then length else 0 end' resposta.json)"
