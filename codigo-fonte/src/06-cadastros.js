@@ -147,7 +147,8 @@ function vConfig() {
       <div class="f"><label>Menu lateral no computador</label><select id="menuFixo"><option value="1" ${lsGet('nc_menu_fixo') !== '0' ? 'selected' : ''}>Sempre visível</option><option value="0" ${lsGet('nc_menu_fixo') === '0' ? 'selected' : ''}>Recolhido</option></select></div>
       <p class="muted" style="font-size:12px">As opções acima valem só para este aparelho.</p>
       <div class="f" style="border-top:1px solid var(--line);padding-top:14px"><label for="contaPrincipal">Conta principal (abre primeiro no Extrato de contas e vem marcada num lançamento novo)</label><select id="contaPrincipal">${contasAtivas().map(k => `<option value="${k.id}" ${contaPrincipal()?.id === k.id ? 'selected' : ''}>${esc(k.nome)}</option>`).join('')}</select></div>
-      <p class="muted" style="font-size:12px">A conta principal vale para todos os aparelhos.</p></div>` : ''}
+      <p class="muted" style="font-size:12px">A conta principal vale para todos os aparelhos.</p>
+      ${limpezaCartao()}</div>` : ''}
   ${aba === 'acesso' ? `<div class="card-b" style="padding-top:16px">
       <p class="muted" style="font-size:13px;margin-top:0">Banco: <b>${esc(c ? c.u.replace('https://', '') : '—')}</b>${c?.fixo ? ' (conexão já embutida no site)' : ''}</p>
       ${c?.fixo ? '<p style="font-size:14px">Para usar em <b>outro celular ou computador</b>, basta abrir o mesmo endereço do site e entrar com o e-mail e a senha.</p>'
