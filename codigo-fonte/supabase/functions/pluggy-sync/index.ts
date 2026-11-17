@@ -247,6 +247,13 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
 // no dia do vencimento, com o valor que falta pagar daquela fatura. Quando o banco confirma o pagamento,
 // a sincronização concilia com essa previsão.
 const OBS_PREV = 'Previsão automática da fatura';
+// texto de débito que parece pagamento de cartão (boleto da operadora, Pix para ela)
+const EMISSOR = /bradescard|itaucard|cobranca|cobrança|mercado ?pago|nubank|fatura|cart[aã]o|\bcard\b/i;
+// débito do banco que virou pagamento de fatura: guarda o texto original ("Open Finance · PIX ...")
+const textoBanco = (desc: string) => `Open Finance · ${desc}`.slice(0, 300);
+// mantém a nota que alguém escreveu à mão; troca as automáticas
+const comTextoBanco = (obs: string | null, desc: string) =>
+  !obs || obs === OBS_PREV || obs.startsWith('Open Finance') ? textoBanco(desc) : `${obs} · ${textoBanco(desc)}`.slice(0, 500);
 // ===================== FECHAMENTO (mesma regra do site: fechadoAte) =====================
 // lançamento com data até a data de fechamento (geral, da conta ou do cartão) não é criado, alterado nem apagado
 async function criarTrava(admin: any, userId: string, prefs: any) {
@@ -459,48 +466,6 @@ Deno.serve(async (req) => {
       return json({ ok: true, conversas: resta.length });
     }
   } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
-
-  // débitos do banco que eram pagamento de fatura mas entraram como despesa (antes da detecção pelo valor):
-  // a previsão da fatura recebe o débito e a despesa repetida sai. simular: só lista.
-  if (body.acao === 'unificar_faturas') {
-    try {
-      const { data: pr } = await admin.from('preferencias').select('dados').eq('user_id', userId).limit(1);
-      const prefs = pr?.[0]?.dados || {};
-      const desde = addDias(hoje(), -90);
-      const [{ data: ks }, { data: ls, error }] = await Promise.all([
-        admin.from('cartoes').select('id,nome,conta_id,arquivado').eq('user_id', userId),
-        admin.from('lancamentos').select('id,tipo,descricao,valor,data,pago,conta_id,cartao_id,fatura_mes,ext_id,observacao').eq('user_id', userId).gte('data', desde),
-      ]);
-      if (error) throw error;
-      const travado = await criarTrava(admin, userId, prefs);
-      const usadosU = new Set<string>(); const pares: any[] = [];
-      const desp = (ls || []).filter((l: any) => l.tipo === 'despesa' && !l.cartao_id && String(l.ext_id || '').startsWith('pluggy:'));
-      for (const d of desp) {
-        const ids = new Set((ks || []).filter((k: any) => !k.arquivado && k.conta_id === d.conta_id).map((k: any) => k.id));
-        const prev = (ls || []).filter((l: any) => !usadosU.has(l.id) && l.tipo === 'pagamento_fatura' && ids.has(l.cartao_id)
-            && !String(l.ext_id || '').startsWith('pluggy:') && Math.abs(difDias(l.data, d.data)) <= 7
-            && Math.abs(Number(l.valor) - Number(d.valor)) <= Math.max(0.01, Number(l.valor) * 0.01))
-          .sort((x: any, y: any) => Math.abs(Number(x.valor) - Number(d.valor)) - Math.abs(Number(y.valor) - Number(d.valor)))[0];
-        if (!prev) continue;
-        usadosU.add(prev.id);
-        const k = (ks || []).find((c: any) => c.id === prev.cartao_id);
-        pares.push({ despesa: { id: d.id, data: d.data, descricao: d.descricao, valor: Number(d.valor), ext_id: d.ext_id, conta_id: d.conta_id },
-          fatura: { id: prev.id, data: prev.data, valor: Number(prev.valor), cartao: k?.nome, pago: prev.pago }, bloqueado: travado(d) || travado(prev) });
-      }
-      if (body.simular) return json({ pares });
-      let feitos = 0;
-      for (const p of pares.filter(p => !p.bloqueado)) {
-        const d = p.despesa;
-        const { error: e1 } = await admin.from('lancamentos').update({ ext_id: d.ext_id, pago: true, conciliado: true, data: d.data, valor: d.valor, conta_id: d.conta_id, observacao: 'Open Finance' }).eq('id', p.fatura.id).eq('user_id', userId);
-        if (e1) throw e1;
-        const { error: e2 } = await admin.from('lancamentos').delete().eq('id', d.id).eq('user_id', userId);
-        if (e2) throw e2;
-        feitos++;
-      }
-      await atualizarPrevisoesFaturas(admin, userId, prefs);
-      return json({ ok: true, unificados: feitos, pares });
-    } catch (e) { return json({ erro: String((e as Error)?.message || e) }, 500); }
-  }
 
   if (body.acao === 'faturas') {
     try {
@@ -733,13 +698,15 @@ Deno.serve(async (req) => {
         linha.conta_id = v.conta_id;
         linha.tipo = entrada ? 'receita' : 'despesa';
         // pagamento de fatura de cartão
-        // 1º pelo valor: débito igual ao de uma fatura prevista de cartão desta conta (até 7 dias do vencimento).
+        // 1º pelo valor: débito igual ao de uma fatura prevista de cartão desta conta (até 7 dias da previsão).
+        //    Previsão já marcada como paga à mão só casa se o texto parecer pagamento de cartão (EMISSOR):
+        //    assim um Pix para uma pessoa, de valor parecido, não some como se fosse a fatura.
         //    Pega boleto ("PAGTO ELETRON COBRANCA - BRADESCARD") e Pix para a operadora, que não dizem "fatura".
         // 2º pelo texto (palavra inteira: "card" não pode pegar "Ricardo"), com o nome do cartão quando há mais de um.
         let prevFatura: any = null;
         if (!entrada && cartoesDaConta.length) {
           const ids = new Set(cartoesDaConta.map((c: any) => c.id));
-          prevFatura = existentes.filter(l => !usados.has(l.id) && l.tipo === 'pagamento_fatura' && ids.has(l.cartao_id)
+          prevFatura = existentes.filter(l => !usados.has(l.id) && l.tipo === 'pagamento_fatura' && ids.has(l.cartao_id) && (!l.pago || EMISSOR.test(desc))
               && !String(l.ext_id || '').startsWith('pluggy:') && Math.abs(difDias(l.data, data)) <= 7
               && Math.abs(Number(l.valor) - valor) <= Math.max(0.01, Number(l.valor) * 0.01))
             .sort((x, y) => Math.abs(Number(x.valor) - valor) - Math.abs(Number(y.valor) - valor) || Math.abs(difDias(x.data, data)) - Math.abs(difDias(y.data, data)))[0] || null;
@@ -750,7 +717,8 @@ Deno.serve(async (req) => {
           // paga a fatura prevista que casou ou, sem ela, a última já fechada na data do pagamento
           if (alvo) {
             const fm = prevFatura?.fatura_mes || (addMeses(faturaYM(alvo, data), -1) + '-01');
-            linha = { ...linha, tipo: 'pagamento_fatura', cartao_id: alvo.id, fatura_mes: fm, descricao: `Pagamento cartão ${alvo.nome}` };
+            // o texto original do banco fica na observação, para dar para conferir se era mesmo a fatura
+            linha = { ...linha, tipo: 'pagamento_fatura', cartao_id: alvo.id, fatura_mes: fm, descricao: `Pagamento cartão ${alvo.nome}`, observacao: textoBanco(desc) };
           }
         }
         if (linha.tipo !== 'pagamento_fatura') {
@@ -766,7 +734,7 @@ Deno.serve(async (req) => {
         if (parFatura) {
           usados.add(parFatura.id);
           atualizar.push([parFatura.id, { ext_id: ext, pago: true, conciliado: true, data, valor, conta_id: v.conta_id,
-            observacao: parFatura.observacao === OBS_PREV ? 'Open Finance' : (parFatura.observacao || 'Open Finance') }]);
+            observacao: comTextoBanco(parFatura.observacao, desc) }]);
           exec.conciliados++; continue;
         }
         const par = existentes
@@ -775,7 +743,8 @@ Deno.serve(async (req) => {
           .sort((a, b) => (a.pago === b.pago ? 0 : a.pago ? 1 : -1) || Math.abs(difDias(a.data, data)) - Math.abs(difDias(b.data, data)))[0];
         if (par) {
           usados.add(par.id);
-          atualizar.push([par.id, { ext_id: ext, pago: !pendente, conciliado: !pendente, data, observacao: par.observacao || 'Open Finance' }]);
+          atualizar.push([par.id, { ext_id: ext, pago: !pendente, conciliado: !pendente, data,
+            observacao: linha.tipo === 'pagamento_fatura' ? comTextoBanco(par.observacao, desc) : (par.observacao || 'Open Finance') }]);
           exec.conciliados++; continue;
         }
         novos.push(linha); comExt.add(ext);
@@ -803,10 +772,28 @@ Deno.serve(async (req) => {
         conciliados: atualizar.map(([id, u]) => { const l = existentes.find(x => x.id === id); return [l?.data, l?.tipo, l?.valor, String(l?.descricao || '').slice(0, 30), u.data || '', u.valor ?? '']; }),
         ignorados: exec.ignorados, remover: remover.length });
     }
-    for (let i = 0; i < novos.length; i += 400) { const { error } = await admin.from('lancamentos').insert(novos.slice(i, i + 400)); if (error) throw error; }
-    for (const [id, upd] of atualizar) { const { error } = await admin.from('lancamentos').update(upd).eq('id', id).eq('user_id', userId); if (error) throw error; }
+    // o índice único (user_id, ext_id 'pluggy:') impede duplicar quando duas sincronizações rodam juntas:
+    // se o lote falhar por duplicado, grava um a um e pula o que outra execução já gravou
+    let dup = 0;
+    for (let i = 0; i < novos.length; i += 400) {
+      const lote = novos.slice(i, i + 400);
+      const { error } = await admin.from('lancamentos').insert(lote);
+      if (!error) continue;
+      if (error.code !== '23505') throw error;
+      for (const l of lote) {
+        const { error: e1 } = await admin.from('lancamentos').insert(l);
+        if (e1?.code === '23505') { dup++; continue; }
+        if (e1) throw e1;
+      }
+    }
+    if (dup) { exec.ignorados += dup; exec.detalhes.push(`${dup} lançamento(s) já gravados por outra sincronização`); }
+    for (const [id, upd] of atualizar) {
+      const { error } = await admin.from('lancamentos').update(upd).eq('id', id).eq('user_id', userId);
+      if (error?.code === '23505') { dup++; exec.conciliados--; exec.ignorados++; continue; } // outra execução já ligou este id da Pluggy
+      if (error) throw error;
+    }
     for (const id of remover) { const { error } = await admin.from('lancamentos').delete().eq('id', id).eq('user_id', userId); if (error) throw error; }
-    exec.novos = novos.length;
+    exec.novos = novos.length - dup;
     try { const f = await atualizarPrevisoesFaturas(admin, userId, prefs); (exec as any).faturas = f; } catch (e) { exec.detalhes.push('faturas: ' + String((e as Error)?.message || e)); }
   } catch (e) {
     exec.erro = String((e as Error)?.message || e).slice(0, 500);

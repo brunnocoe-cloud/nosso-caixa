@@ -28,6 +28,8 @@
       in(k, vs) { st.filters.push(r => vs.includes(r[k])); return b; },
       then(res) {
         try {
+          // relê o "servidor" a cada operação: várias abas fazem o papel de vários aparelhos
+          const atual = JSON.parse(localStorage.getItem('mockdb') || '{}'); for (const k of Object.keys(atual)) db[k] = atual[k]; db[t] = db[t] || [];
           if (localStorage.getItem('mock_semtabelas') === '1') return res({ data: null, error: { message: "Could not find the table 'public." + t + "' in the schema cache", code: 'PGRST205' } });
           const m = r => st.filters.every(f => f(r));
           let data = null;

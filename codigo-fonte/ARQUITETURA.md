@@ -93,13 +93,13 @@ Para conferir: `select jobname, schedule from cron.job;` no SQL Editor.
 
 1. **Janela de busca:** a partir da data **Importar lançamentos a partir de** da tela **Open Finance**, limitada aos últimos 120 dias. Nos cartões, o limite é de 85 dias, porque a Pluggy recusa janelas maiores. A busca vai até 45 dias à frente, para pegar parcelas futuras.
 2. **Transações:** vêm de `/v2/transactions`, com cursor. A rota antiga `/transactions` foi desativada pela Pluggy.
-3. **Lançamento já trazido:** cada lançamento guarda `ext_id = pluggy:<id>`. Se o `ext_id` já existe entre os lançamentos carregados, não entra de novo. A conferência é feita só na memória da execução: o índice `lanc_user_ext` não é único, então duas sincronizações ao mesmo tempo (manual e agendada) podem duplicar (ver §6.1).
+3. **Lançamento já trazido:** cada lançamento guarda `ext_id = pluggy:<id>`. Se o `ext_id` já existe entre os lançamentos carregados, não entra de novo. Para duas sincronizações ao mesmo tempo (manual e agendada), o banco tem o índice único parcial `lanc_user_ext_pluggy` em `(user_id, ext_id)` só para `ext_id` iniciado por `pluggy:` (migração `migracoes/2026-11-17-ext-id-unico.sql`). Se um lote bate no índice, a função grava um a um e pula o que a outra execução já gravou. Os `ext_id` da importação OFX ficam fora do índice.
 4. **Conta bancária:**
    - só entram transações confirmadas;
    - **pagamento de fatura**, reconhecido de duas formas:
-     - **pelo valor:** um débito com valor até 1% (mínimo R$ 0,01) diferente de qualquer `pagamento_fatura` de um cartão ligado à conta que ainda não tenha `ext_id` da Pluggy, a até 7 dias da data desse lançamento, vira o pagamento dessa fatura. Não importa se a previsão está paga nem o mês, e a descrição do débito não é olhada. Pega boleto ("PAGTO ELETRON COBRANCA - BRADESCARD") e Pix para a operadora, que não dizem "fatura", mas também pode pegar um Pix ou boleto comum de valor parecido (ver §6.1);
+     - **pelo valor:** um débito com valor até 1% (mínimo R$ 0,01) diferente de um `pagamento_fatura` de um cartão ligado à conta que ainda não tenha `ext_id` da Pluggy, a até 7 dias da data desse lançamento, vira o pagamento dessa fatura. Se a previsão está **em aberto**, a descrição do débito não é olhada. Se já foi **marcada como paga à mão**, só casa quando o texto parece pagamento de cartão (`EMISSOR`: Bradescard, Itaucard, cobrança, Mercado Pago, Nubank, fatura, cartão, card). Pega boleto ("PAGTO ELETRON COBRANCA - BRADESCARD") e Pix para a operadora; ainda pode pegar um Pix comum de valor parecido com uma previsão em aberto (ver §6.1);
      - **pelo texto:** "fatura", "cartão", "card" (palavra inteira, para não pegar "Ricardo"), "Bradescard" ou "Itaucard", com o nome do cartão quando há mais de um ligado à conta;
-   - o pagamento reconhecido ocupa o lugar da previsão da fatura, mesmo que ela já tenha sido marcada como paga à mão. A descrição passa a ser "Pagamento cartão <nome>" e a observação de uma previsão automática vira "Open Finance": o texto original do banco se perde.
+   - o pagamento reconhecido ocupa o lugar da previsão da fatura, mesmo que ela já tenha sido marcada como paga à mão. A descrição passa a ser "Pagamento cartão <nome>" e o texto original do banco fica na observação ("Open Finance · PAGTO ELETRON COBRANCA…"). Uma nota escrita à mão na previsão é mantida, com o texto do banco depois.
 5. **Cartão:**
    - compras pendentes entram com a observação "Open Finance (em aberto)", para a fatura atual ficar certa;
    - quando a Pluggy confirma, a observação muda;
@@ -149,13 +149,11 @@ Roda na função: depois de cada sincronização, antes de cada resumo e quando 
 
 ### 5.6 Ações da função
 
-Chamadas com `{ "acao": "<nome>" }` no corpo: `status`, `connect_token`, `contas`, `salvar_credenciais`, `faturas`, `diagnostico`, `relatorio`, `telegram_status`, `telegram_salvar`, `telegram_vincular`, `telegram_desvincular`, `telegram_recusar`, `telegram_webhook` e `unificar_faturas`. Sem ação, sincroniza; com `"simular": true`, devolve o que faria sem gravar.
-
-`unificar_faturas` foi de uso único (10 e 13/11/2026), já foi usada e deve ser removida antes de criar um índice único em `ext_id`.
+Chamadas com `{ "acao": "<nome>" }` no corpo: `status`, `connect_token`, `contas`, `salvar_credenciais`, `faturas`, `diagnostico`, `relatorio`, `telegram_status`, `telegram_salvar`, `telegram_vincular`, `telegram_desvincular`, `telegram_recusar` e `telegram_webhook`. Sem ação, sincroniza; com `"simular": true`, devolve o que faria sem gravar. (`unificar_faturas`, de uso único em 10 e 13/11/2026, foi removida em 17/11.)
 
 ### 5.7 Preferências
 
-Ficam numa única linha de `preferencias`, coluna `dados` (JSON). O site lê no login e a cada abertura, e grava o objeto **inteiro** (`salvarPrefs` em `01-core.js`, `limpPrefs` em `13-limpeza.js`). Um aparelho com uma cópia velha em memória que salve qualquer preferência apaga o que outro aparelho gravou depois (ver §6.1). Chaves usadas: `pluggy`, `recursos`, `faturas_base`, `fechamento_global`, `limpeza_regras`, `limpeza_2026`, entre outras.
+Ficam numa única linha de `preferencias`, coluna `dados` (JSON). O site lê no login e a cada abertura. Para gravar (`salvarPrefs` → `gravarPrefs` em `01-core.js`; `limpPrefs` em `13-limpeza.js` usa a mesma), ele relê o que está no banco e grava por cima só as chaves que mudaram **neste aparelho** desde a última leitura, inclusive as apagadas. Assim um aparelho aberto há dias não desfaz o que outro gravou. A comparação é por chave de primeiro nível: se dois aparelhos mudam a mesma chave (por exemplo `pluggy`), vale o último. Chaves usadas: `pluggy`, `recursos`, `faturas_base`, `fechamento_global`, `limpeza_regras`, `limpeza_2026`, entre outras.
 
 ### 5.8 Limpeza das categorias (2026)
 
@@ -171,9 +169,10 @@ Módulo temporário `src/13-limpeza.js`, aplicado em 16/11/2026 (1.142 lançamen
 
 ### 6.1 Defeitos conhecidos (abertos em 17/11/2026)
 
-- **Fatura pelo valor pode engolir um pagamento real** (§5.3 item 4). Um Pix ou boleto de valor parecido com uma fatura vira pagamento de cartão, o gasto some e o texto do banco se perde.
-- **Duplicados em sincronizações simultâneas** (§5.3 item 3). Falta índice único parcial em `(user_id, ext_id)` para `ext_id` iniciado por `pluggy:`. Não usar índice único em todos os `ext_id`: a importação OFX grava o FITID ali.
-- **Desfazer da limpeza pode sumir** (§5.7). Qualquer aparelho com preferências velhas regrava o objeto inteiro.
+Corrigidos em 17/11/2026: texto do banco perdido na fatura pelo valor; Pix casando com previsão já paga; duplicados em sincronizações simultâneas; preferências apagadas por outro aparelho.
+
+
+- **Fatura pelo valor ainda pode pegar um Pix comum** de valor parecido com uma previsão **em aberto** (§5.3 item 4). Desde 17/11 o texto do banco fica na observação, para conferir.
 - **Ordem das regras indefinida e diferente entre site e função** (§5.3 item 8).
 - **Histórico aprende com previsões futuras** (§5.3 item 8).
 - **A regra vence a correção manual** (§5.3 item 8).

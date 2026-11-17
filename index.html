@@ -1128,16 +1128,35 @@ async function carregar(tabelas = TABELAS) {
   tabelas.forEach((t, i) => S[t] = res[i]);
   S.carregadoEm = Date.now(); _fatCache = new Map();
 }
+// _prefsBase: as preferências como estavam no banco da última vez que este aparelho leu ou gravou.
+// Serve para gravar só o que mudou aqui, sem apagar o que outro aparelho gravou depois.
+let _prefsBase = {};
+const _jsonP = v => JSON.stringify(v === undefined ? null : v);
 async function carregarPrefs() {
   const { data, error } = await sb.from('preferencias').select('*').limit(1);
   if (error) throw error;
   if (data?.length) S.prefs = data[0].dados || {};
   else { S.prefs = { recursos: { tags: true, orcamento: true, economia: true, cartoes: true } }; await sb.from('preferencias').insert({ dados: S.prefs }); }
+  _prefsBase = JSON.parse(JSON.stringify(S.prefs));
+}
+// relê o que está no banco e grava por cima só as chaves que mudaram neste aparelho (inclusive as apagadas)
+async function gravarPrefs() {
+  const { data, error } = await sb.from('preferencias').select('*').limit(1);
+  if (error) throw error;
+  const novo = { ...(data?.[0]?.dados || {}) };
+  for (const k of new Set([...Object.keys(_prefsBase), ...Object.keys(S.prefs)])) {
+    if (_jsonP(S.prefs[k]) === _jsonP(_prefsBase[k])) continue; // não mudou aqui: vale o que está no banco
+    if (S.prefs[k] === undefined) delete novo[k]; else novo[k] = S.prefs[k];
+  }
+  const r = await sb.from('preferencias').update({ dados: novo }).eq('user_id', S.uid);
+  if (r.error) throw r.error;
+  S.prefs = novo; _prefsBase = JSON.parse(JSON.stringify(novo));
 }
 // conta que o site usa por padrão (Extrato de contas e novo lançamento): a escolhida em Configurações › Geral
 const contaPrincipal = () => byId('contas', S.prefs.conta_principal) || contasAtivas()[0] || S.contas[0];
 async function salvarPrefs(msg) {
-  await op(sb.from('preferencias').update({ dados: S.prefs }).eq('user_id', S.uid), msg);
+  try { await gravarPrefs(); } catch (e) { toast('Erro: ' + traduzErro(e), true); throw e; }
+  if (msg) toast(msg);
 }
 async function op(promessa, msgOk) {
   const { error, data } = await promessa;
@@ -3966,7 +3985,7 @@ function previaProteger() {
 }
 
 /* ---------- aplicar de verdade e desfazer ---------- */
-const limpPrefs = async () => { const { error } = await sb.from('preferencias').update({ dados: S.prefs }).eq('user_id', S.uid); if (error) throw error; };
+const limpPrefs = () => gravarPrefs();
 async function limpezaGravar() {
   previaProteger(); PREVIA.liberado = true;
   try {

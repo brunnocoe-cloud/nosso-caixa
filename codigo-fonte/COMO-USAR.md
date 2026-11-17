@@ -28,7 +28,7 @@ A cópia oficial é o repositório no GitHub; regras para agentes de IA no `AGEN
 3. Envie as mudanças ao GitHub.
 4. Se a função mudou: `supabase functions deploy pluggy-sync --no-verify-jwt`
    (ou cole o `index.ts` no editor da função, no painel do Supabase, e clique em **Implantar atualizações**).
-5. Se o banco de dados mudou: rode o `schema.sql` no SQL Editor do Supabase.
+5. Se o banco de dados mudou: rode o `schema.sql` no SQL Editor do Supabase. Mudanças de uso único ficam em `migracoes/` e rodam uma vez, à mão.
 
 ## Segurança
 

@@ -87,7 +87,7 @@ function previaProteger() {
 }
 
 /* ---------- aplicar de verdade e desfazer ---------- */
-const limpPrefs = async () => { const { error } = await sb.from('preferencias').update({ dados: S.prefs }).eq('user_id', S.uid); if (error) throw error; };
+const limpPrefs = () => gravarPrefs();
 async function limpezaGravar() {
   previaProteger(); PREVIA.liberado = true;
   try {

@@ -49,9 +49,11 @@ Configuração que **só existe no Supabase** (não está no repositório): o co
 4. **Não revogue nem recrie as conexões da Pluggy / Meu Pluggy** sem pedido explícito: a sincronização depende delas.
 5. **Mudanças em dados reais:** primeiro simule (`"simular": true` na função, prévia no site), mostre os números e espere a confirmação do dono. Totais em reais não podem mudar numa recategorização.
 6. **Período fechado:** não altere lançamentos com data até a data de fechamento.
-7. **Preferências:** `salvarPrefs` grava o objeto inteiro. Não crie código que salve preferências sem reler antes (defeito conhecido; ver ARQUITETURA §6.1).
+7. **Preferências:** grave sempre por `salvarPrefs`/`gravarPrefs` (relê o banco e junta por chave). Nunca faça `update({ dados: S.prefs })` direto.
 8. Siga o `ARQUITETURA.md` quando ele e o código concordarem; quando discordarem, vale o código, e corrija o documento no mesmo commit.
 
 ## Trabalho pendente (17/11/2026)
 
-Ver ARQUITETURA §6.1. Prioridades combinadas: guardar o texto original do banco quando um débito vira pagamento de fatura; exigir previsão em aberto no casamento pelo valor; remover `unificar_faturas` e então criar índice único parcial em `ext_id` `pluggy:`; preferências sem perda; arquivar os cartões antigos; conferir o pagamento da Visa de 20/11/2026; remover o módulo de limpeza depois da revisão de dezembro.
+Ver ARQUITETURA §6.1. Já feito em 17/11: texto do banco guardado, regra mais segura da fatura pelo valor, `unificar_faturas` removida, índice único `lanc_user_ext_pluggy`, preferências sem perda. Falta: conferir o pagamento da Visa de 20/11/2026; arquivar os cartões antigos (o dono confirma quais); ordem fixa das regras e histórico sem previsões futuras; remover o módulo de limpeza depois da revisão de dezembro.
+
+Migrações SQL de uso único ficam em `codigo-fonte/migracoes/`, com data no nome, e são rodadas à mão no SQL Editor.
