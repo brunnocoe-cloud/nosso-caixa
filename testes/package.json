@@ -1,0 +1,6 @@
+{
+  "name": "nosso-caixa-testes",
+  "private": true,
+  "description": "Chart.js local para os testes de navegador (Playwright) do Nosso Caixa",
+  "dependencies": { "chart.js": "4.4.1" }
+}

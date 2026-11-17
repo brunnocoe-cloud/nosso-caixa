@@ -4,7 +4,8 @@ O site publicado é o `index.html` da raiz do repositório (GitHub Pages).
 Ele é gerado a partir desta pasta:
 
 - `src/` — partes do site: `00-config.js` (endereço do Supabase e a chave pública),
-  `01-core.js` (regras), as telas, `11-openfinance.js`, `12-periodo.js` (filtro **Ver por**) e `style.css`.
+  `01-core.js` (regras), as telas, `11-openfinance.js`, `12-periodo.js` (filtro **Ver por**),
+  `13-limpeza.js` (limpeza das categorias de 2026, temporário: ver ARQUITETURA §5.8) e `style.css`.
 - `build.py` — junta `src/`, `schema_base.sql` e `sql_v4_openfinance.sql` no `index.html`
   da raiz do repositório e gera o `schema.sql`. Rode `python3 build.py` dentro desta pasta.
   Arquivo novo em `src/` precisa entrar na lista `ordem`; se faltar, o build para e avisa.
@@ -20,11 +21,14 @@ Ele é gerado a partir desta pasta:
 
 ## Atualizar
 
+A cópia oficial é o repositório no GitHub; regras para agentes de IA no `AGENTS.md` da raiz.
+
 1. `python3 build.py` (nesta pasta).
-2. Envie as mudanças ao GitHub.
-3. Se a função mudou: `supabase functions deploy pluggy-sync --no-verify-jwt`
+2. Rode os testes da pasta `testes/` (ver `testes/LEIA-ME.md`).
+3. Envie as mudanças ao GitHub.
+4. Se a função mudou: `supabase functions deploy pluggy-sync --no-verify-jwt`
    (ou cole o `index.ts` no editor da função, no painel do Supabase, e clique em **Implantar atualizações**).
-4. Se o banco de dados mudou: rode o `schema.sql` no SQL Editor do Supabase.
+5. Se o banco de dados mudou: rode o `schema.sql` no SQL Editor do Supabase.
 
 ## Segurança
 

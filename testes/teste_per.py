@@ -1,0 +1,57 @@
+import pathlib
+exec(open(pathlib.Path(__file__).parent/'teste3.py').read().split('with sync_playwright() as p:')[0])
+with sync_playwright() as p:
+    br = p.chromium.launch(); ctx = br.new_context(viewport={'width': 1400, 'height': 900})
+    ctx.add_init_script("localStorage.setItem('mock_usuario','casal@x.com')")
+    pg = ctx.new_page(); pg.on('pageerror', lambda e: erros.append('JS: ' + str(e)))
+    pg.route('**/*', rota); pg.goto('https://site.local/nosso-caixa/'); pg.wait_for_selector('#fLogin')
+    pg.fill('#lEmail', 'casal@x.com'); pg.fill('#lSenha', 'certa'); pg.click('#fLogin button[type=submit]'); pg.wait_for_selector('#view')
+    pg.evaluate("""(async()=>{ await salvar('contas',{nome:'Banco',tipo:'corrente',saldo_inicial:1000}); await carregar();
+      const c=S.contas[0]; await salvar('cartoes',{nome:'Visa',limite:5000,dia_fechamento:3,dia_vencimento:10,conta_id:c.id}); await carregar();
+      const k=S.cartoes[0]; const h=hoje(); const fy=faturaYM(k,h)+'-01';
+      await inserirMuitos('lancamentos',[
+        {tipo:'despesa',descricao:'Mercado',valor:100,data:h,cartao_id:k.id,fatura_mes:fy,pago:true},
+        {tipo:'despesa',descricao:'Farmácia',valor:50,data:h,cartao_id:k.id,fatura_mes:fy,pago:true},
+        {tipo:'despesa',descricao:'Posto',valor:200,data:addDias(h,-1),cartao_id:k.id,fatura_mes:fy,pago:true},
+        {tipo:'despesa',descricao:'Luz',valor:80,data:h,conta_id:c.id,pago:true},
+        {tipo:'despesa',descricao:'Água',valor:40,data:addDias(h,-40),conta_id:c.id,pago:true}]); await carregar(); })()""")
+    pg.wait_for_timeout(300); pg.evaluate("irPara('cartoes')"); pg.wait_for_selector('[data-per-modo=cartoes]')
+    t = pg.inner_text('#view')
+    ok('· no dia' in t and '350,00' in t, 'cartão em blocos diários com acumulado')
+    pg.select_option('[data-per-modo=cartoes]', 'dia'); pg.wait_for_selector('[data-per-campo=dia]')
+    t = pg.inner_text('#view'); ok('Resumo do período' in t and '150,00' in t and 'Posto' not in t, 'cartão por dia')
+    pg.click('[data-act=perNav][data-n="-1"]'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok('Posto' in t and 'Mercado' not in t, 'navegar dia anterior')
+    pg.select_option('[data-per-modo=cartoes]', 'periodo'); pg.wait_for_selector('[data-per-campo=de]')
+    pg.click('[data-act=perRapido][data-v="7d"]'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok('Posto' in t and 'Mercado' in t, 'período 7 dias')
+    pg.select_option('[data-per-modo=cartoes]', 'ano'); pg.wait_for_timeout(200); ok('Mercado' in pg.inner_text('#view'), 'cartão por ano')
+    pg.select_option('[data-per-modo=cartoes]', 'fatura'); pg.wait_for_timeout(200); ok('Valor a pagar' in pg.inner_text('#view'), 'volta para fatura')
+    pg.evaluate("irPara('extrato')"); pg.wait_for_selector('[data-per-modo=extrato]')
+    ok('Luz' in pg.inner_text('#view'), 'extrato por mês')
+    pg.select_option('[data-per-modo=extrato]', 'periodo'); pg.wait_for_selector('[data-per-campo=de]')
+    pg.click('[data-act=perRapido][data-v="90d"]'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok('Água' in t and 'Luz' in t, 'extrato período 90 dias')
+    pg.select_option('[data-per-modo=extrato]', 'dia'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok('Luz' in t and 'Água' not in t, 'extrato por dia')
+    pg.evaluate("irPara('cartoes')"); pg.select_option('[data-per-modo=cartoes]', 'semana'); pg.wait_for_timeout(200)
+    print('DBG', pg.inner_text('.mesnav .lbl'), 'Mercado' in pg.inner_text('#view')); ok('Mercado' in pg.inner_text('#view') and ' – ' in pg.inner_text('.mesnav .lbl'), 'cartão por semana')
+    pg.click('[data-act=perNav][data-n="-1"]'); pg.wait_for_timeout(200); ok('Mercado' not in pg.inner_text('#view'), 'semana anterior')
+    pg.click('[data-act=perHoje]'); pg.wait_for_timeout(200)
+    pg.select_option('[data-per-modo=cartoes]', 'fatura'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok(t.index('Posto') < t.index('Mercado'), 'crescente por padrão')
+    pg.click('[data-act=perOrdem]'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok(t.index('Mercado') < t.index('Posto') and 'Mais recentes' in t, 'decrescente')
+    pg.evaluate("irPara('extrato')"); pg.select_option('[data-per-modo=extrato]', 'periodo'); pg.wait_for_timeout(200); pg.click('[data-act=perRapido][data-v="90d"]'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok(t.index('Água') < t.index('Luz'), 'extrato crescente')
+    pg.click('[data-act=perOrdem]'); pg.wait_for_timeout(200)
+    t = pg.inner_text('#view'); ok(t.index('Luz') < t.index('Água') and t.index('Saldo anterior', t.index('Água')) > 0, 'extrato decrescente com saldo anterior no fim')
+    pg.select_option('[data-per-modo=extrato]', 'semana'); pg.wait_for_timeout(200); ok('Luz' in pg.inner_text('#view'), 'extrato por semana')
+    pg.evaluate("irPara('cartoes')"); pg.wait_for_timeout(200)
+    pg.screenshot(path=str(T/'v3'/'cartoes-blocos.png'))
+    m = br.new_context(viewport={'width': 390, 'height': 800}, storage_state=ctx.storage_state()).new_page(); m.route('**/*', rota)
+    m.goto('https://site.local/nosso-caixa/#cartoes'); m.wait_for_selector('[data-per-modo=cartoes]'); m.wait_for_timeout(300)
+    m.select_option('[data-per-modo=cartoes]', 'periodo'); m.wait_for_timeout(300)
+    ok(m.evaluate('document.documentElement.scrollWidth') <= 392, 'celular sem rolagem lateral')
+    m.screenshot(path=str(T/'v3'/'cartoes-mob.png'), full_page=True)
+print('ERROS:', erros)
