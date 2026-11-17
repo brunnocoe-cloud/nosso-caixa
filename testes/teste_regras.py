@@ -27,4 +27,19 @@ with sync_playwright() as p:
       await carregar(); S.imp={destino:'conta:'+c,inverter:false}; prepararLinhas([{data:'2026-03-01',valor:-7,desc:'PADARIA DO ZE'}]); })()""")
     pg.wait_for_timeout(300)
     ok(pg.evaluate("S.categorias.find(x=>x.id===S.imp.linhas[0].cat)?.nome") == 'Supermercado', 'importação aprende com o mais recente até hoje, não com o futuro')
+    # correção manual pelo formulário vira regra exata: os próximos iguais seguem a correção
+    pg.evaluate("""(async()=>{ const cat=n=>S.categorias.find(x=>x.nome===n&&!x.parent_id).id;
+      await salvar('regras',{tipo:'despesa',descricao:'Mercado',palavras:'mercado',categoria_id:cat('Supermercado'),tags:[]}); await carregar(); })()""")
+    pg.wait_for_timeout(300)
+    ok(pg.evaluate("S.categorias.find(x=>x.id===regraPara('MERCADO LIVRE COMPRA','despesa')?.categoria_id)?.nome") == 'Supermercado', 'antes: a palavra mercado manda para Supermercado')
+    l = pg.evaluate("""(async()=>{ const c=S.contas[0].id, cat=n=>S.categorias.find(x=>x.nome===n&&!x.parent_id).id;
+      await salvar('lancamentos',{tipo:'despesa',descricao:'MERCADO LIVRE COMPRA',valor:30,data:'2026-03-02',conta_id:c,categoria_id:cat('Supermercado'),pago:true}); await carregar();
+      return S.lancamentos.find(x=>x.descricao==='MERCADO LIVRE COMPRA').id })()""")
+    pg.wait_for_timeout(300)
+    pg.evaluate(f"formLanc(S.lancamentos.find(x=>x.id==='{l}'))"); pg.wait_for_selector('form [name=categoria_id]')
+    pg.evaluate("(()=>{const s=document.querySelector('form [name=categoria_id]'); s.value=S.categorias.find(x=>x.nome==='Lazer'&&!x.parent_id).id; s.dispatchEvent(new Event('change',{bubbles:true}));})()")
+    pg.click('.overlay button[type=submit]'); pg.wait_for_timeout(1200)
+    ok(pg.evaluate("S.categorias.find(x=>x.id===regraPara('MERCADO LIVRE COMPRA','despesa')?.categoria_id)?.nome") == 'Lazer', 'depois da correção: próximos iguais vão para Lazer')
+    ok(pg.evaluate("S.categorias.find(x=>x.id===regraPara('MERCADO CENTRAL','despesa')?.categoria_id)?.nome") == 'Supermercado', 'a regra de palavra-chave continua valendo para as outras descrições')
+    ok(pg.evaluate("S.regras.filter(r=>r.descricao==='MERCADO LIVRE COMPRA').length") == 1, 'cria uma regra só')
     print('ERROS:', erros or 'nenhum')

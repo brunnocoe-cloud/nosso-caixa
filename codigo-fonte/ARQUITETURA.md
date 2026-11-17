@@ -97,7 +97,7 @@ Para conferir: `select jobname, schedule from cron.job;` no SQL Editor.
 4. **Conta bancária:**
    - só entram transações confirmadas;
    - **pagamento de fatura**, reconhecido de duas formas:
-     - **pelo valor:** um débito com valor até 1% (mínimo R$ 0,01) diferente de um `pagamento_fatura` de um cartão ligado à conta que ainda não tenha `ext_id` da Pluggy, a até 7 dias da data desse lançamento, vira o pagamento dessa fatura. Se a previsão está **em aberto**, a descrição do débito não é olhada. Se já foi **marcada como paga à mão**, só casa quando o texto parece pagamento de cartão (`EMISSOR`: Bradescard, Itaucard, cobrança, Mercado Pago, Nubank, fatura, cartão, card). Pega boleto ("PAGTO ELETRON COBRANCA - BRADESCARD") e Pix para a operadora; ainda pode pegar um Pix comum de valor parecido com uma previsão em aberto (ver §6.1);
+     - **pelo valor:** um débito com valor até 1% (mínimo R$ 0,01) diferente de um `pagamento_fatura` de um cartão ligado à conta que ainda não tenha `ext_id` da Pluggy, a até 7 dias da data desse lançamento, vira o pagamento dessa fatura. Se a previsão está **em aberto**, a descrição do débito não é olhada. Se já foi **marcada como paga à mão**, só casa quando o texto parece pagamento de cartão (`EMISSOR`: Bradescard, Itaucard, cobrança, Mercado Pago, Nubank, fatura, cartão, card). Pix, TED, DOC e transferências só casam se o texto citar a operadora (`TRANSFERENCIA` + `EMISSOR`): um Pix fixo a uma pessoa com valor parecido não vira pagamento. Pega boleto ("PAGTO ELETRON COBRANCA - BRADESCARD") e Pix para a operadora (ver §6.1);
      - **pelo texto:** "fatura", "cartão", "card" (palavra inteira, para não pegar "Ricardo"), "Bradescard" ou "Itaucard", com o nome do cartão quando há mais de um ligado à conta;
    - o pagamento reconhecido ocupa o lugar da previsão da fatura, mesmo que ela já tenha sido marcada como paga à mão. A descrição passa a ser "Pagamento cartão <nome>" e o texto original do banco fica na observação ("Open Finance · PAGTO ELETRON COBRANCA…"). Uma nota escrita à mão na previsão é mantida, com o texto do banco depois.
 5. **Cartão:**
@@ -114,7 +114,7 @@ Para conferir: `select jobname, schedule from cron.job;` no SQL Editor.
    2. categoria usada antes na mesma descrição, entre os 3.000 lançamentos categorizados mais recentes **até hoje** (previsões futuras não ensinam). Na importação de arquivo do site vale o mesmo: o mais recente até hoje;
    3. tradução da categoria da Pluggy (procura por nome, sem olhar se a categoria está ativa).
 
-   A regra vence a correção manual: se alguém muda a categoria de um lançamento à mão, o próximo lançamento igual volta a seguir a regra.
+   **A correção manual vale para os próximos:** ao mudar a categoria de um lançamento no formulário, o site grava uma regra de descrição exata (`aprenderCorrecao`, `08-forms.js`) ou troca a categoria da regra exata que já existe. Como a descrição exata é a camada mais forte, os próximos lançamentos iguais (no site e na sincronização) seguem a correção. Regras de palavra-chave não são alteradas.
 9. **Período fechado:** nada com data até a data de fechamento do período (geral, da conta ou do cartão) é criado, alterado ou apagado. O que for barrado entra só na contagem de **ignorados**; o detalhe não é gravado em `pluggy_execucoes` nem aparece na tela. A regra está só no código (site e função), não no banco.
 10. Cada execução grava uma linha em `pluggy_execucoes` (novos, conciliados, ignorados e erro), mostrada em **Histórico de sincronizações**. As gravações (inserir, atualizar, apagar) não são feitas numa transação: um erro no meio deixa a execução pela metade.
 
@@ -172,8 +172,7 @@ Módulo temporário `src/13-limpeza.js`, aplicado em 16/11/2026 (1.142 lançamen
 Corrigidos em 17/11/2026: texto do banco perdido na fatura pelo valor; Pix casando com previsão já paga; duplicados em sincronizações simultâneas; preferências apagadas por outro aparelho; ordem das regras indefinida e diferente entre site e função; histórico aprendendo com previsões futuras.
 
 
-- **Fatura pelo valor ainda pode pegar um Pix comum** de valor parecido com uma previsão **em aberto** (§5.3 item 4). Desde 17/11 o texto do banco fica na observação, para conferir.
-- **A regra vence a correção manual** (§5.3 item 8).
+- **Fatura pelo valor ainda pode pegar um boleto comum** de valor parecido com uma previsão em aberto (§5.3 item 4). O texto do banco fica na observação, para conferir.
 - **Estornos de cartão entram como receita.** Não há reconhecimento de transferência entre contas próprias.
 - **Sobra de até 1%:** quando o débito é um pouco menor que a previsão, a diferença vira nova previsão "a pagar".
 - **Previsão manual não é apagada quando a fatura zera** (§5.4).

@@ -175,7 +175,9 @@ function formLanc(l = null, preset = {}) {
       else base.anexos = anexos.filter(a => a.path);
       if (!novo && !dup) {
         const r = await salvarEdicao(l, base); if (r === null) return false;
-        await recarregarERender(['lancamentos']); return;
+        // correção manual de categoria vale para os próximos lançamentos com a mesma descrição
+        if ((tipo === 'despesa' || tipo === 'receita') && !detalhado && base.categoria_id && base.categoria_id !== l.categoria_id) await aprenderCorrecao(descricao, tipo, base.categoria_id);
+        await recarregarERender(['lancamentos', 'regras']); return;
       }
       const rep = E.repeticao?.value || 'unica';
       let linhas;
@@ -205,6 +207,19 @@ function formLanc(l = null, preset = {}) {
   });
 }
 // edição: pergunta se vale só para este ou para a série
+// A correção manual vira regra de descrição EXATA (a camada mais forte de regraPara, no site e na função),
+// então os próximos lançamentos com a mesma descrição vão para a categoria escolhida.
+// Se já existe regra exata para essa descrição, só troca a categoria dela. Não mexe em regras de palavra-chave.
+async function aprenderCorrecao(descricao, tipo, categoria_id) {
+  const d = semAcento(descricao);
+  if (!d || regraPara(descricao, tipo)?.categoria_id === categoria_id) return;
+  const exata = S.regras.find(r => r.tipo === tipo && semAcento(r.descricao) === d && !r.conta_id && !r.cartao_id);
+  const res = exata
+    ? await sb.from('regras').update({ categoria_id }).eq('id', exata.id)
+    : await sb.from('regras').insert({ tipo, descricao: descricao.trim().slice(0, 120), palavras: '', categoria_id, tags: [] });
+  if (res.error) { toast('A categoria foi salva, mas não deu para lembrar a correção: ' + traduzErro(res.error), true); return; }
+  toast(`Próximos “${descricao.trim().slice(0, 40)}” irão para ${nomeCat(categoria_id)}.`);
+}
 async function salvarEdicao(l, base) {
   const grupo = l.grupo_id ? S.lancamentos.filter(x => x.grupo_id === l.grupo_id) : [];
   let alvo = 'este';

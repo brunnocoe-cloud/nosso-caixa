@@ -248,7 +248,9 @@ async function montarRelatorio(admin: any, userId: string, prefs: any, P: (p: st
 // a sincronização concilia com essa previsão.
 const OBS_PREV = 'Previsão automática da fatura';
 // texto de débito que parece pagamento de cartão (boleto da operadora, Pix para ela)
-const EMISSOR = /bradescard|itaucard|cobranca|cobrança|mercado ?pago|nubank|fatura|cart[aã]o|\bcard\b/i;
+const EMISSOR = /bradescard|itaucard|\bitau\b|cobranca|cobrança|mercado ?pago|mercado ?livre|nubank|fatura|cart[aã]o|\bcard\b/i;
+// Pix/TED/DOC/transferência: só é pagamento de fatura se citar a operadora (Pix fixo a uma pessoa pode ter valor parecido)
+const TRANSFERENCIA = /\bpix\b|\bted\b|\bdoc\b|transf/i;
 // débito do banco que virou pagamento de fatura: guarda o texto original ("Open Finance · PIX ...")
 const textoBanco = (desc: string) => `Open Finance · ${desc}`.slice(0, 300);
 // mantém a nota que alguém escreveu à mão; troca as automáticas
@@ -720,7 +722,7 @@ Deno.serve(async (req) => {
         let prevFatura: any = null;
         if (!entrada && cartoesDaConta.length) {
           const ids = new Set(cartoesDaConta.map((c: any) => c.id));
-          prevFatura = existentes.filter(l => !usados.has(l.id) && l.tipo === 'pagamento_fatura' && ids.has(l.cartao_id) && (!l.pago || EMISSOR.test(desc))
+          prevFatura = existentes.filter(l => !usados.has(l.id) && l.tipo === 'pagamento_fatura' && ids.has(l.cartao_id) && (!l.pago || EMISSOR.test(desc)) && (!TRANSFERENCIA.test(desc) || EMISSOR.test(desc))
               && !String(l.ext_id || '').startsWith('pluggy:') && Math.abs(difDias(l.data, data)) <= 7
               && Math.abs(Number(l.valor) - valor) <= Math.max(0.01, Number(l.valor) * 0.01))
             .sort((x, y) => Math.abs(Number(x.valor) - valor) - Math.abs(Number(y.valor) - valor) || Math.abs(difDias(x.data, data)) - Math.abs(difDias(y.data, data)))[0] || null;
